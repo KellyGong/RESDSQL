@@ -39,10 +39,12 @@ class StringDealer:
         # dep：依赖关系，表示某种依赖但具体关系不明确
         # root：句子的根节点
         doc = self.nlp(sentence)
+        word_pairs = []
         for word in doc.sentences[0].words:
-            print(f"index: {word.index.rjust(2)}\tword: {word.text.ljust(11)}\tgovernor index: {word.governor}\tgovernor: {(doc.sentences[0].words[word.governor-1].text if word.governor > 0 else 'root').ljust(11)}\tdeprel: {word.dependency_relation}")
-
-        return doc.sentences[0].dependencies
+            # print(f"index: {word.index.rjust(2)}\tword: {word.text.ljust(11)}\tgovernor index: {word.governor}\tgovernor: {(doc.sentences[0].words[word.governor-1].text if word.governor > 0 else 'root').ljust(11)}\tdeprel: {word.dependency_relation}")
+            if word.dependency_relation in ["nmod", "nsubj", "appos", "conj"]:
+                word_pairs.append((word.text.ljust(11), (doc.sentences[0].words[word.governor-1].text if word.governor > 0 else 'root').ljust(11), word.dependency_relation))
+        return word_pairs
 
 
 class GraphProcessor:
@@ -52,7 +54,8 @@ class GraphProcessor:
         self.SPLIT_TOKEN_ID = self.tokenizer('|')['input_ids'][0]
         self.TABLE_COLUMN_SPLIT = self.tokenizer('.')['input_ids'][1]
         
-        self.RELATION_LIST = ['question-question-dist-1', 'question-question-dist-1',
+        self.RELATION_LIST = ['question-question-dist-1', 'question-question-dist-2',
+                              'question-question-dependency',
                               'question-table-exactmatch', 'question-table-partialmatch',
                               'table-column-pk', 'table-table-fkr', 'column-table-pk', 
                               'column-column-fkr', 'table-table-fk', 'column-column-fk', 
@@ -168,6 +171,23 @@ class GraphProcessor:
                     self.get_edge_tuple_list(question_table_partial_matching, 'question-table-partialmatch') + \
                     self.get_edge_tuple_list(question_column_partial_matching, 'question-column-partialmatch'), input_ids, input_sequence
     
+    def add_question_edges(self, input_sequence, input_ids):
+        split_token_index = input_ids.index(self.SPLIT_TOKEN_ID)
+        question_sequence = input_sequence.split('|')[0]
+        ques_ques_1_dist = []
+        ques_ques_2_dist = []
+        for i in range(split_token_index-1):
+            ques_ques_1_dist.append((i, i+1))
+            ques_ques_1_dist.append((i+1, i))
+
+        for i in range(split_token_index-2):
+            ques_ques_2_dist.append((i, i+2))
+            ques_ques_2_dist.append((i+2, i))
+
+        word_pairs = self.string_dealer.get_dependency(question_sequence)
+        return self.get_edge_tuple_list(ques_ques_1_dist, 'question-question-dist-1') + \
+                    self.get_edge_tuple_list(ques_ques_2_dist, 'question-question-dist-2')
+
     def process_sequence(self, input_sequence):
         # split_input_sequence = [question, table 1, table 2, ..., foreign key 1, foreign key 2]
         # initialize
@@ -183,9 +203,9 @@ class GraphProcessor:
 
         question_table_column_match_edges, input_ids, input_sequence = self.add_table_column_match(input_sequence, input_ids)
 
-        
+        question_edges = self.add_question_edges(input_sequence, input_ids)
 
-        self.string_dealer.get_dependency(question_sequence)
+        
         
         print('yes')
 
