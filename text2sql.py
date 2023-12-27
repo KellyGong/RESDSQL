@@ -92,16 +92,17 @@ def _train(opt):
         text2sql_tokenizer.add_tokens([AddedToken(" <="), AddedToken(" <")])
     
     train_dataset = Text2SQLDataset(
-        dir_ = opt.train_filepath,
-        mode = "train"
+        dir_=opt.train_filepath,
+        mode="train",
+        tokenizer=text2sql_tokenizer
     )
 
     train_dataloder = DataLoader(
-        train_dataset, 
-        batch_size = opt.batch_size, 
-        shuffle = True,
-        collate_fn = lambda x: x,
-        drop_last = True
+        train_dataset,
+        batch_size=opt.batch_size,
+        shuffle=True,
+        collate_fn=lambda x: x,
+        drop_last=True
     )
 
     model_class = MT5ForConditionalGeneration if "mt5" in opt.model_name_or_path else T5ForConditionalGeneration
@@ -172,7 +173,6 @@ def _train(opt):
                 truncation=True
             )
             
-            # with text2sql_tokenizer.as_target_tokenizer():
             tokenized_outputs = text2sql_tokenizer(
                 text_target=batch_sqls,
                 padding="max_length",
@@ -314,12 +314,12 @@ def _test(opt):
                 )
             elif opt.target_type == "natsql":
                 predict_sqls += decode_natsqls(
-                    opt.db_path, 
-                    model_outputs, 
-                    batch_db_ids, 
-                    batch_inputs, 
-                    tokenizer, 
-                    batch_tc_original, 
+                    opt.db_path,
+                    model_outputs,
+                    batch_db_ids,
+                    batch_inputs,
+                    tokenizer,
+                    batch_tc_original,
                     table_dict
                 )
             else:
