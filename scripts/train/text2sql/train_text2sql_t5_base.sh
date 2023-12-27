@@ -1,14 +1,14 @@
 set -e
 
 # train text2sql-t5-base model
-python -u text2sql.py \
+CUDA_VISIBLE_DEVICES=7 python -u text2sql.py \
     --batch_size 16 \
     --gradient_descent_step 2 \
     --learning_rate 1e-4 \
     --epochs 128 \
     --seed 42 \
-    --save_path "./models/text2sql-t5-base-additional" \
-    --tensorboard_save_path "./tensorboard_log/text2sql-t5-base-additional" \
+    --save_path "./models/text2sql-t5-base-graph" \
+    --tensorboard_save_path "./tensorboard_log/text2sql-t5-base-graph" \
     --model_name_or_path "./llm/t5-base" \
     --use_adafactor \
     --mode train \

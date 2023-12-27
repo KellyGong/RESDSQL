@@ -345,7 +345,7 @@ class Text2SQLDataset(Dataset):
             self.db_ids.append(data["db_id"])
             self.all_tc_original.append(data["tc_original"])
 
-            self._process_graph(data["input_sequence"])
+            # self._process_graph(data["input_sequence"])
 
             if self.mode == "train":
                 self.output_sequences.append(data["output_sequence"])

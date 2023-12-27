@@ -17,6 +17,12 @@ from utils.spider_metric.evaluator import EvaluateTool
 from utils.load_dataset import Text2SQLDataset
 from utils.text2sql_decoding_utils import decode_sqls, decode_natsqls
 
+
+from utils.args import ModelArguments
+from transformers.models.auto import AutoConfig
+from model import GraphLLModel
+
+
 def parse_option():
     parser = argparse.ArgumentParser("command line arguments for fine-tuning pre-trained language model.")
     
@@ -91,6 +97,21 @@ def _train(opt):
     if isinstance(text2sql_tokenizer, T5TokenizerFast):
         text2sql_tokenizer.add_tokens([AddedToken(" <="), AddedToken(" <")])
     
+    config = AutoConfig.from_pretrained(
+        opt.model_name_or_path
+    )
+    
+    model_class = MT5ForConditionalGeneration if "mt5" in opt.model_name_or_path else T5ForConditionalGeneration
+
+    model = GraphLLModel(text2sql_tokenizer, opt.model_name_or_path, config)
+
+    print("initializing text2sql model.")
+    # initialize model
+    # model = model_class.from_pretrained(opt.model_name_or_path)
+    # model.resize_token_embeddings(len(text2sql_tokenizer))
+    if torch.cuda.is_available():
+        model = model.cuda()
+    
     train_dataset = Text2SQLDataset(
         dir_=opt.train_filepath,
         mode="train",
@@ -105,15 +126,6 @@ def _train(opt):
         drop_last=True
     )
 
-    model_class = MT5ForConditionalGeneration if "mt5" in opt.model_name_or_path else T5ForConditionalGeneration
-
-    print("initializing text2sql model.")
-    # initialize model
-    model = model_class.from_pretrained(opt.model_name_or_path)
-    model.resize_token_embeddings(len(text2sql_tokenizer))
-    if torch.cuda.is_available():
-        model = model.cuda()
-    
     print("finished.")
 
     # warm up steps (10% training step)
@@ -346,7 +358,8 @@ def _test(opt):
         print('exec score: {}'.format(spider_metric_result["exec"]))
     
         return spider_metric_result["exact_match"], spider_metric_result["exec"]
-    
+
+
 if __name__ == "__main__":
     opt = parse_option()
     if opt.mode in ["train"]:
