@@ -1,10 +1,15 @@
+import dgl
 import json
 import nltk
+import torch
 from nltk.corpus import wordnet
 from nltk.stem import WordNetLemmatizer
 from torch.utils.data import Dataset
 import inflect
 import stanfordnlp
+import pickle
+from tqdm import tqdm
+from collections import defaultdict
 
 
 class StringDealer:
@@ -43,7 +48,7 @@ class StringDealer:
         for word in doc.sentences[0].words:
             # print(f"index: {word.index.rjust(2)}\tword: {word.text.ljust(11)}\tgovernor index: {word.governor}\tgovernor: {(doc.sentences[0].words[word.governor-1].text if word.governor > 0 else 'root').ljust(11)}\tdeprel: {word.dependency_relation}")
             if word.dependency_relation in ["nmod", "nsubj", "appos", "conj"]:
-                word_pairs.append((word.text.ljust(11), (doc.sentences[0].words[word.governor-1].text if word.governor > 0 else 'root').ljust(11), word.dependency_relation))
+                word_pairs.append((word.text.ljust(11).strip(), (doc.sentences[0].words[word.governor-1].text if word.governor > 0 else 'root').ljust(11).strip(), word.dependency_relation))
         return word_pairs
 
 
@@ -53,12 +58,13 @@ class GraphProcessor:
         self.string_dealer = StringDealer()
         self.SPLIT_TOKEN_ID = self.tokenizer('|')['input_ids'][0]
         self.TABLE_COLUMN_SPLIT = self.tokenizer('.')['input_ids'][1]
+        self.TABLE_NAME_SPLIT = self.tokenizer(':')['input_ids'][1]
         
         self.RELATION_LIST = ['question-question-dist-1', 'question-question-dist-2',
-                              'question-question-dependency',
+                              'question-question-nmod', 'question-question-nsubj',
+                              'question-question-appos', 'question-question-conj',
                               'question-table-exactmatch', 'question-table-partialmatch',
-                              'table-column-pk', 'table-table-fkr', 'column-table-pk', 
-                              'column-column-fkr', 'table-table-fk', 'column-column-fk', 
+                              'table-column-belong', 'column-table-belong',  
                               'question-column-exactmatch', 'question-column-partialmatch']
         
         self.RELATION_MAPPING = {v: k for k, v in enumerate(self.RELATION_LIST)}
@@ -88,7 +94,27 @@ class GraphProcessor:
                         res.append((question_word_index, other_word_index))
         return res
     
+    def deal_column_with_value(self, column_list):
+        merge_indexes = []
+        for i, column_name in enumerate(column_list):
+            if ')' in column_name and '.' not in column_name:
+                # search the column name has the '('
+                for j in range(i-1, -1, -1):
+                    if '(' in column_list[j]:
+                        merge_indexes.append((j, i))
+                        break
+        
+        # merge the indexes in the list values:
+        for merge_index in merge_indexes[::-1]:
+            append_str = column_list.pop(merge_index[1])
+            for i in range(merge_index[1] - 1, merge_index[0], -1):
+                append_str = column_list.pop(i) + ' , ' + append_str
+            column_list[merge_index[0]] += ' , ' + append_str
+        
+        return column_list
+    
     def add_table_column_match(self, input_sequence, input_ids):
+        # FIXME: add value match
         question_table_exact_matching = []  # save token index [(question_token_index, table_token_index), (...)]
         question_column_exact_matching = []  # save token index
 
@@ -138,6 +164,8 @@ class GraphProcessor:
                 for column_name in column_names:
                     column_list.append(column_name.strip())
         
+        if '(' in other_sequence:
+            column_list = self.deal_column_with_value(column_list)
         column_set = set(column_list)
         table_set = set(table_list)
 
@@ -171,11 +199,36 @@ class GraphProcessor:
                     self.get_edge_tuple_list(question_table_partial_matching, 'question-table-partialmatch') + \
                     self.get_edge_tuple_list(question_column_partial_matching, 'question-column-partialmatch'), input_ids, input_sequence
     
+    def add_reverse_edges(self, edge_type, edges):
+        edge_type_id = self.RELATION_MAPPING[edge_type]
+        edge_reverse_type = f'{edge_type}_r'
+        new_edges = []
+        
+        if edge_reverse_type in self.RELATION_MAPPING:
+            edge_reverse_type_id = self.RELATION_MAPPING[edge_reverse_type]
+        else:
+            edge_reverse_type_id = len(self.RELATION_MAPPING)
+            self.RELATION_MAPPING[edge_reverse_type] = edge_reverse_type_id
+            self.RELATION_LIST.append(edge_reverse_type)
+        
+        for edge_index1_index2_type in edges:
+            if edge_index1_index2_type[2] == edge_type_id:
+                new_edges.append((edge_index1_index2_type[1], edge_index1_index2_type[0], edge_reverse_type_id))
+        
+        edges += new_edges
+        return edges
+    
+    def add_reverse_edges_for_multiple_edge_types(self, edge_types, edges):
+        for edge_type in edge_types:
+            edges = self.add_reverse_edges(edge_type, edges)
+        return edges
+
     def add_question_edges(self, input_sequence, input_ids):
         split_token_index = input_ids.index(self.SPLIT_TOKEN_ID)
         question_sequence = input_sequence.split('|')[0]
         ques_ques_1_dist = []
         ques_ques_2_dist = []
+        ques_ques_dependency = defaultdict(list)
         for i in range(split_token_index-1):
             ques_ques_1_dist.append((i, i+1))
             ques_ques_1_dist.append((i+1, i))
@@ -185,15 +238,79 @@ class GraphProcessor:
             ques_ques_2_dist.append((i+2, i))
 
         word_pairs = self.string_dealer.get_dependency(question_sequence)
-        return self.get_edge_tuple_list(ques_ques_1_dist, 'question-question-dist-1') + \
+
+        for word_pair in word_pairs:
+            word1, word2, dependency = word_pair
+            word1_token_ids = self.tokenizer(word1)['input_ids'][:-1]
+            word2_token_ids = self.tokenizer(word2)['input_ids'][:-1]
+
+            word1_token_indexes = self.get_all_indexes_of_value_list(input_ids[:split_token_index], word1_token_ids)
+            word2_token_indexes = self.get_all_indexes_of_value_list(input_ids[:split_token_index], word2_token_ids)
+
+            for word1_token_index in word1_token_indexes:
+                for word2_token_index in word2_token_indexes:
+                    for word1_index in word1_token_index:
+                        for word2_index in word2_token_index:
+                            ques_ques_dependency[dependency].append((word1_index, word2_index))
+
+        edge_tuple_list = self.get_edge_tuple_list(ques_ques_1_dist, 'question-question-dist-1') + \
                     self.get_edge_tuple_list(ques_ques_2_dist, 'question-question-dist-2')
+
+        for dependency, word_pairs in ques_ques_dependency.items():
+            edge_tuple_list += self.get_edge_tuple_list(word_pairs, 'question-question-' + dependency)         
+
+        return edge_tuple_list
+
+    def add_database_edges(self, input_sequence, input_ids):
+        split_token_index = input_ids.index(self.SPLIT_TOKEN_ID)
+        database_sequence = input_sequence.split('|', 1)[1]
+        database_sequence_list = database_sequence.split('|')
+        column_list = []
+        table_list = []
+        table_belong_column = []
+        column_belong_table = []
+        for other_sequence_item in database_sequence_list:
+            if '=' not in other_sequence_item:
+                table_column_name_sequence = other_sequence_item.split(':')
+                table_name, column_name_sequence = table_column_name_sequence[0], table_column_name_sequence[1]
+                column_names = column_name_sequence.split(',')
+                for column_name in column_names:
+                    column_list.append(column_name.strip())
+                table_list.append(table_name.strip())
+            else:
+                column_names = other_sequence_item.split('=')
+                for column_name in column_names:
+                    column_list.append(column_name.strip())
+        
+        if '(' in database_sequence:
+            column_list = self.deal_column_with_value(column_list)
+        column_list = list(set(column_list))
+        table_list = list(set(table_list))
+
+        for table_name in table_list:
+            for column_name in column_list:
+                if table_name == column_name.split('.')[0]:  # in the same table
+                    table_name_token_ids = self.tokenizer(table_name + ' : ')['input_ids'][:-1]
+                    column_name_token_ids = self.tokenizer(column_name)['input_ids'][:-1]
+                    table_name_token_indexes = self.get_all_indexes_of_value_list(input_ids[split_token_index:], table_name_token_ids, split_token_index)
+                    assert len(table_name_token_indexes) == 1
+                    table_name_token_indexes = table_name_token_indexes[0][:-2]
+                    column_name_token_indexes = self.get_all_indexes_of_value_list(input_ids[split_token_index:], column_name_token_ids, split_token_index)
+                    for table_name_token_index in table_name_token_indexes:
+                        for column_name_token_index in column_name_token_indexes:
+                            for token_index in column_name_token_index:
+                                table_belong_column.append((table_name_token_index, token_index))
+                                column_belong_table.append((token_index, table_name_token_index))
+        
+        return self.get_edge_tuple_list(table_belong_column, 'table-column-belong') + \
+                    self.get_edge_tuple_list(column_belong_table, 'column-table-belong')
+        
 
     def process_sequence(self, input_sequence):
         # split_input_sequence = [question, table 1, table 2, ..., foreign key 1, foreign key 2]
         # initialize
         split_input_sequence = input_sequence.split('|')
         input_ids = self.tokenizer(input_sequence)['input_ids']
-        question_sequence = split_input_sequence[0]
         table_sequences, foreign_key_sequences = [], []
         for i in range(1, len(split_input_sequence)):
             if '=' in split_input_sequence[i]:
@@ -205,10 +322,22 @@ class GraphProcessor:
 
         question_edges = self.add_question_edges(input_sequence, input_ids)
 
-        
-        
-        print('yes')
+        database_edges = self.add_database_edges(input_sequence, input_ids)
 
+        edges = question_table_column_match_edges + question_edges + database_edges
+
+        edges = self.add_reverse_edges_for_multiple_edge_types(
+                    ['question-table-exactmatch', 'question-column-exactmatch',
+                     'question-table-partialmatch', 'question-column-partialmatch'], edges)
+        
+        edge_tensor_1 = torch.tensor([edge[0] for edge in edges], dtype=torch.long)
+        edge_tensor_2 = torch.tensor([edge[1] for edge in edges], dtype=torch.long)
+        edge_type = torch.tensor([edge[2] for edge in edges], dtype=torch.long)
+
+        graph = dgl.graph((edge_tensor_1, edge_tensor_2), num_nodes=len(input_ids))
+        graph.edata['type'] = edge_type
+        
+        return graph
 
 
 class ColumnAndTableClassifierDataset(Dataset):
@@ -319,12 +448,14 @@ class ColumnAndTableClassifierDataset(Dataset):
 
         return question, table_names_in_one_db, table_labels_in_one_db, column_infos_in_one_db, column_labels_in_one_db
 
+
 class Text2SQLDataset(Dataset):
     def __init__(
         self,
         dir_: str,
         mode: str,
-        tokenizer: any = None,
+        graph_file: str,
+        tokenizer: any = None
     ):
         super(Text2SQLDataset).__init__()
         
@@ -336,17 +467,29 @@ class Text2SQLDataset(Dataset):
         self.output_sequences: list[str] = []
         self.db_ids: list[str] = []
         self.all_tc_original: list[list[str]] = []
+        self.sequence_graphs: list[dgl.DGLGraph] = []
 
         with open(dir_, 'r', encoding = 'utf-8') as f:
             dataset = json.load(f)
         
-        for data in dataset:
+        try:
+            with open(graph_file, 'rb') as f:
+                self.sequence_graphs = pickle.load(f)
+        
+        except FileNotFoundError:
+            for data in tqdm(dataset):
+                self.sequence_graphs.append(self._process_graph(data["input_sequence"]))
+            
+            with open(graph_file, 'wb') as f:
+                pickle.dump(self.sequence_graphs, f)
+        
+        pbar = tqdm(dataset)
+
+        for i, data in enumerate(pbar):
+            pbar.set_description(f"Processing {i} Question-Schema Training Sample")
             self.input_sequences.append(data["input_sequence"])
             self.db_ids.append(data["db_id"])
             self.all_tc_original.append(data["tc_original"])
-
-            # self._process_graph(data["input_sequence"])
-
             if self.mode == "train":
                 self.output_sequences.append(data["output_sequence"])
             elif self.mode in ["eval", "test"]:
@@ -362,6 +505,6 @@ class Text2SQLDataset(Dataset):
     
     def __getitem__(self, index):
         if self.mode == "train":
-            return self.input_sequences[index], self.output_sequences[index], self.db_ids[index], self.all_tc_original[index]
+            return self.input_sequences[index], self.output_sequences[index], self.db_ids[index], self.all_tc_original[index], self.sequence_graphs[index]
         elif self.mode in ['eval', "test"]:
-            return self.input_sequences[index], self.db_ids[index], self.all_tc_original[index]
+            return self.input_sequences[index], self.db_ids[index], self.all_tc_original[index], self.sequence_graphs[index]

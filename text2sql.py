@@ -42,7 +42,7 @@ def parse_option():
                         help = 'save path of best fine-tuned text2sql model.')
     parser.add_argument('--tensorboard_save_path', type = str, default = "tensorboard_log/text2sql",
                         help = 'save path of tensorboard log.')
-    parser.add_argument('--model_name_or_path', type = str, default = "t5-3b",
+    parser.add_argument('--model_name_or_path', type = str, default = "./llm/t5-base",
                         help = 
                         '''
                         pre-trained model name. 
@@ -57,8 +57,12 @@ def parse_option():
                         help='trian, eval or test.')
     parser.add_argument('--train_filepath', type = str, default = "data/preprocessed_data/resdsql_train_spider.json",
                         help = 'file path of test2sql training set.')
+    parser.add_argument('--train_graph_filepath', type = str, default= "data/preprocessed_data/resdsql_train_spider_graph.pkl",
+                        help = 'file path of test2sql set graph.')
     parser.add_argument('--dev_filepath', type = str, default = "data/preprocessed_data/resdsql_dev.json",
                         help = 'file path of test2sql dev set.')
+    parser.add_argument('--dev_graph_filepath', type = str, default= "data/preprocessed_data/resdsql_dev_spider_graph.pkl",
+                        help = 'file path of test2sql set graph.')
     parser.add_argument('--original_dev_filepath', type = str, default = "data/spider/dev.json",
                         help = 'file path of the original dev set (for registing evaluator).')
     parser.add_argument('--db_path', type = str, default = "database",
@@ -103,18 +107,19 @@ def _train(opt):
     
     model_class = MT5ForConditionalGeneration if "mt5" in opt.model_name_or_path else T5ForConditionalGeneration
 
-    model = GraphLLModel(text2sql_tokenizer, opt.model_name_or_path, config)
+    # model = GraphLLModel(text2sql_tokenizer, opt.model_name_or_path, config)
 
     print("initializing text2sql model.")
     # initialize model
-    # model = model_class.from_pretrained(opt.model_name_or_path)
-    # model.resize_token_embeddings(len(text2sql_tokenizer))
+    model = model_class.from_pretrained(opt.model_name_or_path)
+    model.resize_token_embeddings(len(text2sql_tokenizer))
     if torch.cuda.is_available():
         model = model.cuda()
     
     train_dataset = Text2SQLDataset(
         dir_=opt.train_filepath,
         mode="train",
+        graph_file=opt.train_graph_filepath,
         tokenizer=text2sql_tokenizer
     )
 
@@ -170,6 +175,7 @@ def _train(opt):
             batch_sqls = [data[1] for data in batch]
             batch_db_ids = [data[2] for data in batch] # unused
             batch_tc_original = [data[3] for data in batch] # unused
+            batch_graphs = [data[4] for data in batch]
             
             # if epoch == 0:
             #     for batch_id in range(len(batch_inputs)):
@@ -265,7 +271,8 @@ def _test(opt):
     
     dev_dataset = Text2SQLDataset(
         dir_ = opt.dev_filepath,
-        mode = opt.mode
+        mode = opt.mode,
+        graph_file = opt.dev_graph_filepath
     )
 
     dev_dataloder = DataLoader(

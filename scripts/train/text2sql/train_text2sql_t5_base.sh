@@ -12,7 +12,7 @@ CUDA_VISIBLE_DEVICES=7 python -u text2sql.py \
     --model_name_or_path "./llm/t5-base" \
     --use_adafactor \
     --mode train \
-    --train_filepath "./data/preprocessed_data/resdsql_train.json"
+    --train_filepath "./data/preprocessed_data/resdsql_train_spider.json"
     
 # select the best text2sql-t5-base ckpt
 python -u evaluate_text2sql_ckpts.py \
