@@ -104,15 +104,17 @@ def _train(opt):
     config = AutoConfig.from_pretrained(
         opt.model_name_or_path
     )
+
+    print("initializing text2sql model.")
     
     model_class = MT5ForConditionalGeneration if "mt5" in opt.model_name_or_path else T5ForConditionalGeneration
 
-    # model = GraphLLModel(text2sql_tokenizer, opt.model_name_or_path, config)
-
-    print("initializing text2sql model.")
     # initialize model
-    model = model_class.from_pretrained(opt.model_name_or_path)
-    model.resize_token_embeddings(len(text2sql_tokenizer))
+    # model = model_class.from_pretrained(opt.model_name_or_path)
+    # model.resize_token_embeddings(len(text2sql_tokenizer))
+
+    model = GraphLLModel(text2sql_tokenizer, opt.model_name_or_path, config)
+    
     if torch.cuda.is_available():
         model = model.cuda()
     
@@ -175,7 +177,7 @@ def _train(opt):
             batch_sqls = [data[1] for data in batch]
             batch_db_ids = [data[2] for data in batch] # unused
             batch_tc_original = [data[3] for data in batch] # unused
-            batch_graphs = [data[4] for data in batch]
+            batch_graphs = [data[4].to('cuda') for data in batch]
             
             # if epoch == 0:
             #     for batch_id in range(len(batch_inputs)):
@@ -217,7 +219,8 @@ def _train(opt):
                 attention_mask = encoder_input_attention_mask,
                 labels = decoder_labels,
                 decoder_attention_mask = decoder_attention_mask,
-                return_dict = True
+                return_dict = True,
+                sequence_graphs = batch_graphs
             )
             
             loss = model_outputs["loss"]
@@ -252,8 +255,6 @@ def _test(opt):
     import time
     start_time = time.time()
     
-    # os.environ["CUDA_VISIBLE_DEVICES"] = opt.device
-    
     if opt.target_type == "natsql":
         tables = json.load(open(opt.tables_for_natsql,'r'))
         table_dict = dict()
@@ -272,6 +273,7 @@ def _test(opt):
     dev_dataset = Text2SQLDataset(
         dir_ = opt.dev_filepath,
         mode = opt.mode,
+        tokenizer = tokenizer,
         graph_file = opt.dev_graph_filepath
     )
 

@@ -337,24 +337,19 @@ class T5LayerRGAT(nn.Module):
         self.filter = nn.Linear(config.d_ff, config.d_model, bias=False)
         self.layer_norm = T5LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout_rate)
-        self.dropout_gnn = nn.Dropout(config.dropout_rate)
     
     def forward(self, hidden_states, graph_batch, relation_emb, **kwargs):
         hs_norm = self.layer_norm(hidden_states)
         graph_rep = self.graph_caption_batch(hs_norm, graph_batch, relation_emb)
-
         output = F.elu(graph_rep)
-        output = self.dropout_gnn(output)
-        # output = output.view_as(hidden_states)
-
         layer_output = hidden_states + self.dropout(output)
-        # pdb.set_trace()
         return layer_output
     
     def graph_caption_batch(self, hidden_states, graph_batch, relation_emb):
         g_batch = []
         for i, graph in enumerate(graph_batch):
-            g, edge_type = graph['graph'], graph['graph'].edata['type']
+            # g, edge_type = graph['graph'], graph['graph'].edata['type']
+            g, edge_type = graph, graph.edata['type']
             edge_feats = relation_emb(edge_type)
             node_feats = hidden_states[i][:g.number_of_nodes()]
             g.ndata['x'] = node_feats
@@ -745,7 +740,7 @@ class T5Block(nn.Module):
 
         # TODO: Jinyang
         if not self.is_decoder:
-            self.rgat_layer = T5LayerRTransformer(config)
+            self.rgat_layer = T5LayerRGAT(config)
 
     def forward(
         self,
@@ -981,10 +976,10 @@ class T5Stack(T5PreTrainedModel):
         # relational T5:
         # TODO: Jinyang Li:
         self.relation_emb = nn.Embedding(25, config.d_model)
-        self.relation_weight = nn.Embedding(25, config.d_model)
-        # self.out_degree_emb = nn.Embedding(config.max_out_degree + 1, config.d_model)
-        # self.in_degree_emb = nn.Embedding(config.max_in_degree + 1, config.d_model)
-        # self.path_len_emb = nn.Embedding(config.max_path_length + 2, 1)
+        # self.relation_weight = nn.Embedding(25, config.d_model)
+        # self.out_degree_emb = nn.Embedding(25, config.d_model)
+        # self.in_degree_emb = nn.Embedding(25, config.d_model)
+        # self.path_len_emb = nn.Embedding(25, 1)
 
     @add_start_docstrings(PARALLELIZE_DOCSTRING)
     def parallelize(self, device_map=None):
@@ -1182,10 +1177,10 @@ class T5Stack(T5PreTrainedModel):
                     output_attentions=output_attentions,
                     graph_batch=graph_batch,
                     relation_emb=self.relation_emb,
-                    out_degree_emb=self.out_degree_emb,
-                    in_degree_emb=self.in_degree_emb,
-                    path_len_emb=self.path_len_emb,
-                    relation_weight=self.relation_weight
+                    # out_degree_emb=self.out_degree_emb,
+                    # in_degree_emb=self.in_degree_emb,
+                    # path_len_emb=self.path_len_emb,
+                    # relation_weight=self.relation_weight
                 )
 
             # layer_outputs is a tuple with:

@@ -475,8 +475,9 @@ class Text2SQLDataset(Dataset):
         try:
             with open(graph_file, 'rb') as f:
                 self.sequence_graphs = pickle.load(f)
+                assert len(self.sequence_graphs) == len(dataset)
         
-        except FileNotFoundError:
+        except Exception:
             for data in tqdm(dataset):
                 self.sequence_graphs.append(self._process_graph(data["input_sequence"]))
             

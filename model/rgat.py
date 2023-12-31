@@ -115,7 +115,7 @@ class GraphLLModel(PreTrainedModel):
         return new_graph_batch
 
     def forward(self, input_ids, attention_mask, labels, **kwargs):
-        graph_batch = self.graph_factory(kwargs)
+        graph_batch = kwargs['sequence_graphs']
         # self.relation_init_prompt(self.rel2id)
         loss = self.pretrain_model(
             input_ids=input_ids,

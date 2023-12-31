@@ -19,6 +19,8 @@ def parse_option():
                         help = 'the evaluation results of fine-tuned text2sql models.')
     parser.add_argument('--mode', type = str, default = "eval",
                         help='eval.')
+    parser.add_argument('--dev_graph_filepath', type = str, default= "data/preprocessed_data/resdsql_dev_spider_graph.pkl",
+                        help = 'file path of test2sql set graph.')
     parser.add_argument('--dev_filepath', type = str, default = "./data/pre-processing/resdsql_test.json",
                         help = 'file path of test2sql dev set.')
     parser.add_argument('--original_dev_filepath', type = str, default = "./data/spider/dev.json",
