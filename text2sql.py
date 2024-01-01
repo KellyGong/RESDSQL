@@ -30,8 +30,6 @@ def parse_option():
                         help = 'input batch size.')
     parser.add_argument('--gradient_descent_step', type = int, default = 4,
                         help = 'perform gradient descent per "gradient_descent_step" steps.')
-    parser.add_argument('--device', type = str, default = "0",
-                        help = 'the id of used GPU device.')
     parser.add_argument('--learning_rate',type = float, default = 3e-5,
                         help = 'learning rate.')
     parser.add_argument('--epochs', type = int, default = 128,
@@ -59,9 +57,13 @@ def parse_option():
                         help = 'file path of test2sql training set.')
     parser.add_argument('--train_graph_filepath', type = str, default= "data/preprocessed_data/resdsql_train_spider_graph.pkl",
                         help = 'file path of test2sql set graph.')
+    parser.add_argument('--train_graph_property_filepath', type = str, default= "data/preprocessed_data/resdsql_train_spider_graph_property.pkl",
+                        help = 'file path of test2sql set graph.')
     parser.add_argument('--dev_filepath', type = str, default = "data/preprocessed_data/resdsql_dev.json",
                         help = 'file path of test2sql dev set.')
     parser.add_argument('--dev_graph_filepath', type = str, default= "data/preprocessed_data/resdsql_dev_spider_graph.pkl",
+                        help = 'file path of test2sql set graph.')
+    parser.add_argument('--dev_graph_property_filepath', type = str, default= "data/preprocessed_data/resdsql_dev_spider_graph_property.pkl",
                         help = 'file path of test2sql set graph.')
     parser.add_argument('--original_dev_filepath', type = str, default = "data/spider/dev.json",
                         help = 'file path of the original dev set (for registing evaluator).')
@@ -90,8 +92,6 @@ def _train(opt):
         writer = SummaryWriter(opt.tensorboard_save_path)
     else:
         writer = None
-
-    # os.environ["CUDA_VISIBLE_DEVICES"] = opt.device
 
     text2sql_tokenizer = T5TokenizerFast.from_pretrained(
         opt.model_name_or_path,
@@ -122,6 +122,7 @@ def _train(opt):
         dir_=opt.train_filepath,
         mode="train",
         graph_file=opt.train_graph_filepath,
+        graph_property_file=opt.train_graph_property_filepath,
         tokenizer=text2sql_tokenizer
     )
 
@@ -274,7 +275,8 @@ def _test(opt):
         dir_ = opt.dev_filepath,
         mode = opt.mode,
         tokenizer = tokenizer,
-        graph_file = opt.dev_graph_filepath
+        graph_file = opt.dev_graph_filepath,
+        graph_property_file = opt.dev_graph_property_filepath
     )
 
     dev_dataloder = DataLoader(
@@ -285,10 +287,16 @@ def _test(opt):
         drop_last = False
     )
 
-    model_class = MT5ForConditionalGeneration if "mt5" in opt.save_path else T5ForConditionalGeneration
+    config = AutoConfig.from_pretrained(
+        opt.model_name_or_path
+    )
+
+    model = GraphLLModel(tokenizer, opt.save_path, config)
+    # model.from_pretrained(opt.save_path)
+    # model_class = MT5ForConditionalGeneration if "mt5" in opt.save_path else T5ForConditionalGeneration
 
     # initialize model
-    model = model_class.from_pretrained(opt.save_path)
+    # model = model_class.from_pretrained(opt.save_path)
     if torch.cuda.is_available():
         model = model.cuda()
 
@@ -298,6 +306,7 @@ def _test(opt):
         batch_inputs = [data[0] for data in batch]
         batch_db_ids = [data[1] for data in batch]
         batch_tc_original = [data[2] for data in batch]
+        batch_graphs = [data[3].to('cuda') for data in batch]
 
         tokenized_inputs = tokenizer(
             batch_inputs, 
@@ -320,7 +329,8 @@ def _test(opt):
                 max_length = 256,
                 decoder_start_token_id = model.config.decoder_start_token_id,
                 num_beams = opt.num_beams,
-                num_return_sequences = opt.num_return_sequences
+                num_return_sequences = opt.num_return_sequences,
+                graph_batch = batch_graphs
             )
 
             model_outputs = model_outputs.view(len(batch_inputs), opt.num_return_sequences, model_outputs.shape[1])

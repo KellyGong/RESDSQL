@@ -455,6 +455,7 @@ class Text2SQLDataset(Dataset):
         dir_: str,
         mode: str,
         graph_file: str,
+        graph_property_file: str,
         tokenizer: any = None
     ):
         super(Text2SQLDataset).__init__()
@@ -478,16 +479,26 @@ class Text2SQLDataset(Dataset):
                 assert len(self.sequence_graphs) == len(dataset)
         
         except Exception:
-            for data in tqdm(dataset):
+            for data in tqdm(dataset, desc="Processing Graphs for sequence"):
                 self.sequence_graphs.append(self._process_graph(data["input_sequence"]))
             
             with open(graph_file, 'wb') as f:
                 pickle.dump(self.sequence_graphs, f)
         
-        pbar = tqdm(dataset)
-
-        for i, data in enumerate(pbar):
-            pbar.set_description(f"Processing {i} Question-Schema Training Sample")
+        try:
+            with open(graph_property_file, 'rb') as f:
+                self.sequence_graphs_property = pickle.load(f)
+                assert len(self.sequence_graphs_property) == len(dataset)
+        
+        except Exception:
+            self.sequence_graphs_property = []
+            for graph in tqdm(self.sequence_graphs, desc="Processing Graph Properties"):
+                self.sequence_graphs_property.append(self._add_node_property(graph))
+            
+            with open(graph_property_file, 'wb') as f:
+                pickle.dump(self.sequence_graphs_property, f)
+        
+        for i, data in enumerate(tqdm(dataset, desc="Processing Dataset")):
             self.input_sequences.append(data["input_sequence"])
             self.db_ids.append(data["db_id"])
             self.all_tc_original.append(data["tc_original"])
@@ -498,6 +509,16 @@ class Text2SQLDataset(Dataset):
             else:
                 raise ValueError("Invalid mode. Please choose from ``train``, ``eval`, and ``test``")
     
+    def _add_node_property(self, graph):
+        dist, paths = dgl.shortest_dist(graph, root=None, return_paths=True)
+        in_degree, out_degree = graph.in_degrees(), graph.out_degrees()
+        return {
+            'dist': dist,
+            'paths': paths,
+            'in_degree': in_degree,
+            'out_degree': out_degree
+        }
+
     def _process_graph(self, input_sequence):
         return self.graph_processor.process_sequence(input_sequence)
 

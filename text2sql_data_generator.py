@@ -19,6 +19,8 @@ def parse_option():
                         help = 'type of the input dataset, options: train, eval, test.')
     parser.add_argument('--noise_rate', type = float, default = 0.08,
                         help = 'the noise rate in the ranked training dataset (needed when the mode = "train")')
+    parser.add_argument('--threshold', type = float, default = 0.5, 
+                        help = 'the threshold for selecting tables and columns in the ranked dataset')
     parser.add_argument('--use_contents', action = 'store_true',
                         help = 'whether to add database contents in the input sequence.')
     parser.add_argument('--add_fk_info', action = 'store_true',

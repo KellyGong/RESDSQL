@@ -9,8 +9,6 @@ def parse_option():
     
     parser.add_argument('--batch_size', type = int, default = 8,
                         help = 'input batch size.')
-    parser.add_argument('--device', type = str, default = "2",
-                        help = 'the id of used GPU device.')
     parser.add_argument('--seed', type = int, default = 42,
                         help = 'random seed.')
     parser.add_argument('--save_path', type = str, default = "./models/text2sql",
@@ -19,7 +17,18 @@ def parse_option():
                         help = 'the evaluation results of fine-tuned text2sql models.')
     parser.add_argument('--mode', type = str, default = "eval",
                         help='eval.')
+    parser.add_argument('--model_name_or_path', type = str, default = "./llm/t5-base",
+                        help = 
+                        '''
+                        pre-trained model name. 
+                        options: 
+                            t5-base, https://huggingface.co/t5-base;
+                            t5-large, https://huggingface.co/t5-large;
+                            t5-3b, https://huggingface.co/t5-3b;
+                        ''')
     parser.add_argument('--dev_graph_filepath', type = str, default= "data/preprocessed_data/resdsql_dev_spider_graph.pkl",
+                        help = 'file path of test2sql set graph.')
+    parser.add_argument('--dev_graph_property_filepath', type = str, default= "data/preprocessed_data/resdsql_dev_spider_graph_property.pkl",
                         help = 'file path of test2sql set graph.')
     parser.add_argument('--dev_filepath', type = str, default = "./data/pre-processing/resdsql_test.json",
                         help = 'file path of test2sql dev set.')
@@ -34,7 +43,7 @@ def parse_option():
     parser.add_argument('--num_return_sequences', type = int, default = 8,
                         help = 'the number of returned sequences in model.generate() function (num_return_sequences <= num_beams).')
     parser.add_argument("--target_type", type = str, default = "sql",
-                help = "sql or natsql.")
+                        help = "sql or natsql.")
     parser.add_argument("--output", type = str, default = "predicted_sql.txt")
     
     opt = parser.parse_args()
@@ -46,7 +55,7 @@ if __name__ == "__main__":
     opt = parse_option()
     
     ckpt_names = os.listdir(opt.save_path)
-    ckpt_names = sorted(ckpt_names, key = lambda x:eval(x.split("-")[1]))
+    ckpt_names = sorted(ckpt_names, key = lambda x:eval(x.split("-")[1]), reverse=True)
     
     print("ckpt_names:", ckpt_names)
 

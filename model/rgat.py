@@ -39,8 +39,7 @@ class GraphLLModel(PreTrainedModel):
         # self.add_graph_feature()
 
         self.pretrain_model = AutoModelForSeq2SeqLM.from_pretrained(
-            path,
-            config=config
+            path
         )
 
         self.pretrain_model.resize_token_embeddings(len(self.tokenizer))
@@ -48,6 +47,9 @@ class GraphLLModel(PreTrainedModel):
         self.config = self.pretrain_model.config
         from .modeling_t5 import T5ForConditionalGeneration
     
+    def save_pretrained(self, save_directory):
+        self.pretrain_model.save_pretrained(save_directory)
+
     def add_graph_feature(self):
         print('add graph post feature, path weight...')
         for graph_data in tqdm(self.graph_pedia):
@@ -132,13 +134,13 @@ class GraphLLModel(PreTrainedModel):
         return {'loss': loss}
 
     def generate(self, input_ids, attention_mask, **kwargs):
-        graph_batch = self.graph_factory(kwargs)
+        # graph_batch = kwargs['sequence_graphs']
         generated_ids = self.pretrain_model.generate(
             input_ids=input_ids,
             attention_mask=attention_mask,
             use_cache=True,
-            graph_batch=graph_batch,
             # relation_embedding=self.relation_embedding
+            # graph_batch=graph_batch,
             **kwargs,
         )
 
