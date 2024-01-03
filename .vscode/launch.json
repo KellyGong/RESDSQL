@@ -24,6 +24,24 @@
                      "--train_filepath", "./data/preprocessed_data/resdsql_train_spider.json"]
         },
         {
+            "name": "generate_sql_data",
+            "env": {"CUDA_VISIBLE_DEVICES":"5"},
+            "type": "python",
+            "request": "launch",
+            "program": "text2sql_data_generator.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["--input_dataset_path", "./data/preprocessed_data/preprocessed_train_spider_natsql.json", 
+                     "--output_dataset_path", "./data/preprocessed_data/resdsql_train_spider_natsql_threshold.json", 
+                     "--topk_table_num", "4",
+                     "--topk_column_num", "5",
+                     "--mode", "train",
+                     "--noise_rate", "0.2",
+                     "--use_contents",
+                     "--use_threshold",
+                     "--target_type", "natsql"]
+        },
+        {
             "name": "eval",
             "env": {"CUDA_VISIBLE_DEVICES":"5"},
             "type": "python",

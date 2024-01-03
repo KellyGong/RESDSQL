@@ -4,6 +4,8 @@ import argparse
 import random
 import numpy as np
 
+NMIN = 1
+
 def parse_option():
     parser = argparse.ArgumentParser("command line arguments for generating the ranked dataset.")
     
@@ -19,7 +21,9 @@ def parse_option():
                         help = 'type of the input dataset, options: train, eval, test.')
     parser.add_argument('--noise_rate', type = float, default = 0.08,
                         help = 'the noise rate in the ranked training dataset (needed when the mode = "train")')
-    parser.add_argument('--threshold', type = float, default = 0.5, 
+    parser.add_argument('--use_threshold', action = 'store_true',
+                        help = 'whether to use threshold for selecting tables and columns in the ranked dataset.')
+    parser.add_argument('--threshold', type = float, default = 0.2, 
                         help = 'the threshold for selecting tables and columns in the ranked dataset')
     parser.add_argument('--use_contents', action = 'store_true',
                         help = 'whether to add database contents in the input sequence.')
@@ -118,6 +122,7 @@ def generate_train_ranked_dataset(opt):
 
         if len(topk_table_ids) < opt.topk_table_num:
             remaining_table_ids = [idx for idx in range(len(data["table_labels"])) if idx not in topk_table_ids]
+            
             # if topk_table_num is large than the total table number, all tables will be selected
             if opt.topk_table_num >= len(data["table_labels"]):
                 topk_table_ids += remaining_table_ids
@@ -206,7 +211,14 @@ def generate_eval_ranked_dataset(opt):
 
         table_pred_probs = list(map(lambda x:round(x,4), data["table_pred_probs"]))
         # find ids of tables that have top-k probability
-        topk_table_ids = np.argsort(-np.array(table_pred_probs), kind="stable")[:opt.topk_table_num].tolist()
+        # find ids of tables that have probability larger than threshold and top-k probability
+        if opt.use_threshold:
+            topk_table_ids = np.argsort(-np.array(table_pred_probs), kind="stable")[:opt.topk_table_num].tolist()
+            topk_table_ids = [idx for idx in topk_table_ids if table_pred_probs[idx] >= opt.threshold]
+            if len(topk_table_ids) == 0:
+                topk_table_ids = np.argsort(-np.array(table_pred_probs), kind="stable")[:opt.topk_table_num].tolist()
+        else:
+            topk_table_ids = np.argsort(-np.array(table_pred_probs), kind="stable")[:opt.topk_table_num].tolist()
         
         # if the mode == eval, we record some information for calculating the coverage
         if opt.mode == "eval":
@@ -227,6 +239,10 @@ def generate_eval_ranked_dataset(opt):
             new_table_info["table_name_original"] = data["db_schema"][table_id]["table_name_original"]
             column_pred_probs = list(map(lambda x:round(x,2), data["column_pred_probs"][table_id]))
             topk_column_ids = np.argsort(-np.array(column_pred_probs), kind="stable")[:opt.topk_column_num].tolist()
+            if opt.use_threshold:
+                topk_column_ids = [idx for idx in topk_column_ids if column_pred_probs[idx] >= opt.threshold]
+                if len(topk_column_ids) == 0:
+                    topk_column_ids = np.argsort(-np.array(column_pred_probs), kind="stable")[:opt.topk_column_num].tolist()
             
             new_table_info["column_names_original"] = [data["db_schema"][table_id]["column_names_original"][column_id] for column_id in topk_column_ids]
             new_table_info["db_contents"] = [data["db_schema"][table_id]["db_contents"][column_id] for column_id in topk_column_ids]

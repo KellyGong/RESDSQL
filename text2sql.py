@@ -110,10 +110,10 @@ def _train(opt):
     model_class = MT5ForConditionalGeneration if "mt5" in opt.model_name_or_path else T5ForConditionalGeneration
 
     # initialize model
-    # model = model_class.from_pretrained(opt.model_name_or_path)
-    # model.resize_token_embeddings(len(text2sql_tokenizer))
+    model = model_class.from_pretrained(opt.model_name_or_path)
+    model.resize_token_embeddings(len(text2sql_tokenizer))
 
-    model = GraphLLModel(text2sql_tokenizer, opt.model_name_or_path, config)
+    # model = GraphLLModel(text2sql_tokenizer, opt.model_name_or_path, config)
     
     if torch.cuda.is_available():
         model = model.cuda()
@@ -221,7 +221,7 @@ def _train(opt):
                 labels = decoder_labels,
                 decoder_attention_mask = decoder_attention_mask,
                 return_dict = True,
-                sequence_graphs = batch_graphs
+                # sequence_graphs = batch_graphs
             )
             
             loss = model_outputs["loss"]
@@ -291,12 +291,12 @@ def _test(opt):
         opt.model_name_or_path
     )
 
-    model = GraphLLModel(tokenizer, opt.save_path, config)
+    # model = GraphLLModel(tokenizer, opt.save_path, config)
     # model.from_pretrained(opt.save_path)
-    # model_class = MT5ForConditionalGeneration if "mt5" in opt.save_path else T5ForConditionalGeneration
+    model_class = MT5ForConditionalGeneration if "mt5" in opt.save_path else T5ForConditionalGeneration
 
     # initialize model
-    # model = model_class.from_pretrained(opt.save_path)
+    model = model_class.from_pretrained(opt.save_path)
     if torch.cuda.is_available():
         model = model.cuda()
 

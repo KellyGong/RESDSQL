@@ -510,10 +510,10 @@ if __name__ == "__main__":
                 
                 truncated_dataset.append(truncated_data)
             
-            with open("./data/pre-processing/truncated_dataset.json", "w") as f:
+            with open("./data/preprocessed_data/truncated_dataset.json", "w") as f:
                 f.write(json.dumps(truncated_dataset, indent = 2, ensure_ascii = False))
             
-            opt.dev_filepath = "./data/pre-processing/truncated_dataset.json"
+            opt.dev_filepath = "./data/preprocessed_data/truncated_dataset.json"
             total_table_pred_probs, total_column_pred_probs = _test(opt)
             
             for data_id, data in enumerate(truncated_dataset):
@@ -558,7 +558,7 @@ if __name__ == "__main__":
                 if len(truncated_table_ids) > 0:
                     truncated_data_info.append([data_id, truncated_table_ids])
             
-            os.remove("./data/pre-processing/truncated_dataset.json")
+            os.remove("./data/preprocessed_data/truncated_dataset.json")
 
         with open(opt.output_filepath, "w") as f:
             f.write(json.dumps(dataset, indent = 2, ensure_ascii = False))
