@@ -1,15 +1,30 @@
 set -e
 
 # train text2natsql-t5-base model
-python -u text2sql.py \
+CUDA_VISIBLE_DEVICES=6 python -u text2sql.py \
     --batch_size 16 \
     --gradient_descent_step 2 \
     --learning_rate 1e-4 \
     --epochs 128 \
     --seed 42 \
-    --save_path "./models/text2natsql-t5-base-graph2" \
-    --tensorboard_save_path "./tensorboard_log/text2natsql-t5-base-graph2" \
+    --save_path "./models/text2natsql-t5-base-graph-rtransformer" \
+    --tensorboard_save_path "./tensorboard_log/text2natsql-t5-base-graph-rtransformer" \
     --model_name_or_path "./llm/t5-base" \
+    --model "rtransformer" \
+    --use_adafactor \
+    --mode train \
+    --train_filepath "./data/preprocessed_data/resdsql_train_spider_natsql.json"
+
+CUDA_VISIBLE_DEVICES=7 python -u text2sql.py \
+    --batch_size 16 \
+    --gradient_descent_step 2 \
+    --learning_rate 1e-4 \
+    --epochs 128 \
+    --seed 42 \
+    --save_path "./models/text2natsql-t5-base-graph-rgat" \
+    --tensorboard_save_path "./tensorboard_log/text2natsql-t5-base-graph-rgat" \
+    --model_name_or_path "./llm/t5-base" \
+    --model "rgat" \
     --use_adafactor \
     --mode train \
     --train_filepath "./data/preprocessed_data/resdsql_train_spider_natsql.json"

@@ -304,7 +304,6 @@ class GraphProcessor:
         
         return self.get_edge_tuple_list(table_belong_column, 'table-column-belong') + \
                     self.get_edge_tuple_list(column_belong_table, 'column-table-belong')
-        
 
     def process_sequence(self, input_sequence):
         # split_input_sequence = [question, table 1, table 2, ..., foreign key 1, foreign key 2]
@@ -337,7 +336,7 @@ class GraphProcessor:
         graph = dgl.graph((edge_tensor_1, edge_tensor_2), num_nodes=len(input_ids))
         graph.edata['type'] = edge_type
         
-        return graph
+        return graph, input_sequence
 
 
 class ColumnAndTableClassifierDataset(Dataset):
@@ -454,15 +453,13 @@ class Text2SQLDataset(Dataset):
         self,
         dir_: str,
         mode: str,
-        graph_file: str,
-        graph_property_file: str,
+        preprocessed_file: str,
         tokenizer: any = None
     ):
         super(Text2SQLDataset).__init__()
         
         self.mode = mode
         self.tokenizer = tokenizer
-        self.graph_processor = GraphProcessor(tokenizer)
 
         self.input_sequences: list[str] = []
         self.output_sequences: list[str] = []
@@ -470,33 +467,33 @@ class Text2SQLDataset(Dataset):
         self.all_tc_original: list[list[str]] = []
         self.sequence_graphs: list[dgl.DGLGraph] = []
 
+        if self._load_from_preprocessed_file(preprocessed_file) == 0:
+            return
+        
         with open(dir_, 'r', encoding = 'utf-8') as f:
             dataset = json.load(f)
         
-        try:
-            with open(graph_file, 'rb') as f:
-                self.sequence_graphs = pickle.load(f)
-                assert len(self.sequence_graphs) == len(dataset)
+        self.graph_processor = GraphProcessor(tokenizer)
+
+        for i, data in enumerate(tqdm(dataset, desc="Processing Graphs for sequence")):
+            graph, modified_input_sequence = self._process_graph(data["input_sequence"])
+            self.sequence_graphs.append(graph)
+            dataset[i]["input_sequence"] = modified_input_sequence
+  
+        self.sequence_graphs_property = []
+        for graph in tqdm(self.sequence_graphs, desc="Processing Graph Properties"):
+            self.sequence_graphs_property.append(self._add_node_property(graph))
         
-        except Exception:
-            for data in tqdm(dataset, desc="Processing Graphs for sequence"):
-                self.sequence_graphs.append(self._process_graph(data["input_sequence"]))
-            
-            with open(graph_file, 'wb') as f:
-                pickle.dump(self.sequence_graphs, f)
-        
-        try:
-            with open(graph_property_file, 'rb') as f:
-                self.sequence_graphs_property = pickle.load(f)
-                assert len(self.sequence_graphs_property) == len(dataset)
-        
-        except Exception:
-            self.sequence_graphs_property = []
-            for graph in tqdm(self.sequence_graphs, desc="Processing Graph Properties"):
-                self.sequence_graphs_property.append(self._add_node_property(graph))
-            
-            with open(graph_property_file, 'wb') as f:
-                pickle.dump(self.sequence_graphs_property, f)
+        # merge sequence_graph and sequence_graph_property to a dict list
+        self.graphs = []
+        for graph, graph_property in zip(self.sequence_graphs, self.sequence_graphs_property):
+            self.graphs.append({
+                'graph': graph,
+                'dist': graph_property['dist'],
+                'paths': graph_property['paths'],
+                'in_degree': graph_property['in_degree'],
+                'out_degree': graph_property['out_degree']
+            })
         
         for i, data in enumerate(tqdm(dataset, desc="Processing Dataset")):
             self.input_sequences.append(data["input_sequence"])
@@ -508,7 +505,42 @@ class Text2SQLDataset(Dataset):
                 pass
             else:
                 raise ValueError("Invalid mode. Please choose from ``train``, ``eval`, and ``test``")
+        self.post_process_graph_property()
+        self._save_to_preprocessed_file(preprocessed_file)
     
+    def post_process_graph_property(self, max_N=24):
+        for graph_dict in tqdm(self.graphs, desc='Post Processing Graph property to fit the embedding'):
+            graph_dict['dist'][graph_dict['dist'] == -1] = max_N
+            graph_dict['dist'][graph_dict['dist'] > max_N] = max_N
+            graph_dict['in_degree'][graph_dict['in_degree'] > max_N] = max_N
+            graph_dict['out_degree'][graph_dict['out_degree'] > max_N] = max_N
+            graph_dict['path_edge_type'] = graph_dict['graph'].edata['type'][graph_dict['paths']]
+            path_average_weight = torch.where(graph_dict['paths'] != -1, 1.0, 0.0)
+            graph_dict['path_average_weight'] = path_average_weight / (torch.sum(path_average_weight, dim=-1, keepdim=True) + 1e-8)
+    
+    def _load_from_preprocessed_file(self, preprocessed_file):
+        print('loading from preprocessed file ', preprocessed_file)
+        try:
+            with open(preprocessed_file, 'rb') as f:
+                content = pickle.load(f)
+                self.input_sequences, self.output_sequences, self.db_ids, self.all_tc_original, self.graphs = \
+                    content['input_sequences'], content['output_sequences'], content['db_ids'], content['all_tc_original'], content['graphs']
+            return 0
+        except Exception as e:
+            print('fail load', e)
+            return -1
+
+    def _save_to_preprocessed_file(self, preprocessed_file):
+        content = {
+            'input_sequences': self.input_sequences,
+            'output_sequences': self.output_sequences,
+            'db_ids': self.db_ids,
+            'all_tc_original': self.all_tc_original,
+            'graphs': self.graphs
+        }
+        with open(preprocessed_file, 'wb') as f:
+            pickle.dump(content, f)
+
     def _add_node_property(self, graph):
         dist, paths = dgl.shortest_dist(graph, root=None, return_paths=True)
         in_degree, out_degree = graph.in_degrees(), graph.out_degrees()
@@ -524,9 +556,9 @@ class Text2SQLDataset(Dataset):
 
     def __len__(self):
         return len(self.input_sequences)
-    
+
     def __getitem__(self, index):
         if self.mode == "train":
-            return self.input_sequences[index], self.output_sequences[index], self.db_ids[index], self.all_tc_original[index], self.sequence_graphs[index]
+            return self.input_sequences[index], self.output_sequences[index], self.db_ids[index], self.all_tc_original[index], self.graphs[index]
         elif self.mode in ['eval', "test"]:
-            return self.input_sequences[index], self.db_ids[index], self.all_tc_original[index], self.sequence_graphs[index]
+            return self.input_sequences[index], self.db_ids[index], self.all_tc_original[index], self.graphs[index]

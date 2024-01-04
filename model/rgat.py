@@ -24,27 +24,10 @@ class GraphLLModel(PreTrainedModel):
         # Load tokenizer and model.
         self.tokenizer = tokenizer
 
-        # import graph part:
-        # self.graph_pedia = graph_pedia
-
-        self.max_in_degree, self.max_out_degree = 0, 0
-        self.max_path_length = 0
-
-        # self.filtered_graph_postprocess_all()
-
-        # config.max_in_degree = self.max_in_degree
-        # config.max_out_degree = self.max_out_degree
-        # config.max_path_length = self.max_path_length
-
-        # self.add_graph_feature()
-
-        self.pretrain_model = AutoModelForSeq2SeqLM.from_pretrained(
-            path
-        )
+        self.pretrain_model = AutoModelForSeq2SeqLM.from_pretrained(path, config=config)
 
         self.pretrain_model.resize_token_embeddings(len(self.tokenizer))
 
-        self.config = self.pretrain_model.config
         from .modeling_t5 import T5ForConditionalGeneration
     
     def save_pretrained(self, save_directory):
@@ -117,7 +100,7 @@ class GraphLLModel(PreTrainedModel):
         return new_graph_batch
 
     def forward(self, input_ids, attention_mask, labels, **kwargs):
-        graph_batch = kwargs['sequence_graphs']
+        graph_batch = kwargs['graph_batch']
         # self.relation_init_prompt(self.rel2id)
         loss = self.pretrain_model(
             input_ids=input_ids,
@@ -127,21 +110,20 @@ class GraphLLModel(PreTrainedModel):
             graph_batch=graph_batch,
             # relation_embedding = self.relation_embedding
         ).loss
-        # for graph in graph_batch:
-        #     graph.ndata.pop('x')
-        #     graph.edata.pop('e')
+        for graph in graph_batch:
+            try:
+                graph['graph'].ndata.pop('x')
+                graph['graph'].edata.pop('e')
+            except Exception:
+                break
         if torch.isnan(loss).sum() != 0: pdb.set_trace()
         return {'loss': loss}
 
     def generate(self, input_ids, attention_mask, **kwargs):
-        # graph_batch = kwargs['sequence_graphs']
         generated_ids = self.pretrain_model.generate(
             input_ids=input_ids,
             attention_mask=attention_mask,
             use_cache=True,
-            # relation_embedding=self.relation_embedding
-            # graph_batch=graph_batch,
             **kwargs,
         )
-
         return generated_ids

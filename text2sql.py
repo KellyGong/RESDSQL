@@ -23,6 +23,7 @@ from transformers.models.auto import AutoConfig
 from model import GraphLLModel
 
 
+
 def parse_option():
     parser = argparse.ArgumentParser("command line arguments for fine-tuning pre-trained language model.")
     
@@ -51,20 +52,18 @@ def parse_option():
                         ''')
     parser.add_argument('--use_adafactor', action='store_true',
                         help = 'whether to use adafactor optimizer.')
+    parser.add_argument('--model', type = str, default = "transformer",
+                        help = 'transformer or rgat or rtransformer.')
     parser.add_argument('--mode', type = str, default = "train",
                         help='trian, eval or test.')
-    parser.add_argument('--train_filepath', type = str, default = "data/preprocessed_data/resdsql_train_spider.json",
+    parser.add_argument('--train_filepath', type = str, default = "./data/preprocessed_data/resdsql_train_spider.json",
                         help = 'file path of test2sql training set.')
-    parser.add_argument('--train_graph_filepath', type = str, default= "data/preprocessed_data/resdsql_train_spider_graph.pkl",
-                        help = 'file path of test2sql set graph.')
-    parser.add_argument('--train_graph_property_filepath', type = str, default= "data/preprocessed_data/resdsql_train_spider_graph_property.pkl",
-                        help = 'file path of test2sql set graph.')
+    parser.add_argument('--train_preprocessed_dataset', type = str, default = "./data/preprocessed_data/resdsql_train_spider.pkl",
+                        help = 'preprocessed file of training dataset')
     parser.add_argument('--dev_filepath', type = str, default = "data/preprocessed_data/resdsql_dev.json",
                         help = 'file path of test2sql dev set.')
-    parser.add_argument('--dev_graph_filepath', type = str, default= "data/preprocessed_data/resdsql_dev_spider_graph.pkl",
-                        help = 'file path of test2sql set graph.')
-    parser.add_argument('--dev_graph_property_filepath', type = str, default= "data/preprocessed_data/resdsql_dev_spider_graph_property.pkl",
-                        help = 'file path of test2sql set graph.')
+    parser.add_argument('--dev_preprocessed_dataset', type = str, default = "./data/preprocessed_data/resdsql_dev_spider.pkl",
+                        help = 'preprocessed file of dev dataset')
     parser.add_argument('--original_dev_filepath', type = str, default = "data/spider/dev.json",
                         help = 'file path of the original dev set (for registing evaluator).')
     parser.add_argument('--db_path', type = str, default = "database",
@@ -84,6 +83,28 @@ def parse_option():
 
     return opt
 
+
+# def update_config_with_graph_property(config, graph_property_lists):
+#     max_in_degree, max_out_degree = 0, 0
+#     max_path_length = 0
+
+#     # for graph in graph_property_lists:
+#     #     max_in_degree = max(max_in_degree, int(graph['in_degree'].max()))
+#     #     max_out_degree = max(max_out_degree, int(graph['out_degree'].max()))
+#     #     max_path_length = max(max_path_length, int(graph['dist'].max()))
+
+#     config.max_in_degree = 20
+#     config.max_out_degree = 20
+#     config.max_path_length = 20
+
+#     return config
+
+def map_graph_dict_to_cuda(graph_dict, keys):
+    for key in keys:
+        graph_dict[key] = graph_dict[key].to('cuda')
+    return graph_dict
+
+
 def _train(opt):
     set_seed(opt.seed)
     print(opt)
@@ -100,29 +121,13 @@ def _train(opt):
 
     if isinstance(text2sql_tokenizer, T5TokenizerFast):
         text2sql_tokenizer.add_tokens([AddedToken(" <="), AddedToken(" <")])
-    
-    config = AutoConfig.from_pretrained(
-        opt.model_name_or_path
-    )
 
     print("initializing text2sql model.")
-    
-    model_class = MT5ForConditionalGeneration if "mt5" in opt.model_name_or_path else T5ForConditionalGeneration
 
-    # initialize model
-    model = model_class.from_pretrained(opt.model_name_or_path)
-    model.resize_token_embeddings(len(text2sql_tokenizer))
-
-    # model = GraphLLModel(text2sql_tokenizer, opt.model_name_or_path, config)
-    
-    if torch.cuda.is_available():
-        model = model.cuda()
-    
     train_dataset = Text2SQLDataset(
         dir_=opt.train_filepath,
         mode="train",
-        graph_file=opt.train_graph_filepath,
-        graph_property_file=opt.train_graph_property_filepath,
+        preprocessed_file=opt.train_preprocessed_dataset,
         tokenizer=text2sql_tokenizer
     )
 
@@ -133,6 +138,23 @@ def _train(opt):
         collate_fn=lambda x: x,
         drop_last=True
     )
+
+    if opt.model == "transformer":
+        model_class = MT5ForConditionalGeneration if "mt5" in opt.model_name_or_path else T5ForConditionalGeneration
+        # initialize model
+        model = model_class.from_pretrained(opt.model_name_or_path)
+        model.resize_token_embeddings(len(text2sql_tokenizer))
+
+    elif opt.model == "rgat" or opt.model == "rtransformer":
+        config = AutoConfig.from_pretrained(
+            opt.model_name_or_path
+        )
+        config.structure_encoder = opt.model
+        # update_config_with_graph_property(config, train_dataset.sequence_graphs_property)
+        model = GraphLLModel(text2sql_tokenizer, opt.model_name_or_path, config)
+
+    if torch.cuda.is_available():
+        model = model.cuda()
 
     print("finished.")
 
@@ -178,7 +200,7 @@ def _train(opt):
             batch_sqls = [data[1] for data in batch]
             batch_db_ids = [data[2] for data in batch] # unused
             batch_tc_original = [data[3] for data in batch] # unused
-            batch_graphs = [data[4].to('cuda') for data in batch]
+            batch_graphs = [map_graph_dict_to_cuda(data[4], ['graph']) for data in batch]
             
             # if epoch == 0:
             #     for batch_id in range(len(batch_inputs)):
@@ -215,14 +237,23 @@ def _train(opt):
                 decoder_labels = decoder_labels.cuda()
                 decoder_attention_mask = decoder_attention_mask.cuda()
             
-            model_outputs = model(
-                input_ids = encoder_input_ids,
-                attention_mask = encoder_input_attention_mask,
-                labels = decoder_labels,
-                decoder_attention_mask = decoder_attention_mask,
-                return_dict = True,
-                # sequence_graphs = batch_graphs
-            )
+            if opt.model == "rgat" or opt.model == "rtransformer":
+                model_outputs = model(
+                    input_ids = encoder_input_ids,
+                    attention_mask = encoder_input_attention_mask,
+                    labels = decoder_labels,
+                    decoder_attention_mask = decoder_attention_mask,
+                    return_dict = True,
+                    graph_batch = batch_graphs
+                )
+            else:
+                model_outputs = model(
+                    input_ids = encoder_input_ids,
+                    attention_mask = encoder_input_attention_mask,
+                    labels = decoder_labels,
+                    decoder_attention_mask = decoder_attention_mask,
+                    return_dict = True
+                )
             
             loss = model_outputs["loss"]
             loss.backward()
@@ -248,7 +279,7 @@ def _train(opt):
                 os.makedirs(opt.save_path, exist_ok = True)
                 model.save_pretrained(save_directory = opt.save_path + "/checkpoint-{}".format(train_step))
                 text2sql_tokenizer.save_pretrained(save_directory = opt.save_path + "/checkpoint-{}".format(train_step))
-    
+
 def _test(opt):
     set_seed(opt.seed)
     print(opt)
@@ -275,8 +306,7 @@ def _test(opt):
         dir_ = opt.dev_filepath,
         mode = opt.mode,
         tokenizer = tokenizer,
-        graph_file = opt.dev_graph_filepath,
-        graph_property_file = opt.dev_graph_property_filepath
+        preprocessed_file = opt.dev_preprocessed_dataset
     )
 
     dev_dataloder = DataLoader(
@@ -323,15 +353,25 @@ def _test(opt):
             encoder_input_attention_mask = encoder_input_attention_mask.cuda()
 
         with torch.no_grad():
-            model_outputs = model.generate(
-                input_ids = encoder_input_ids,
-                attention_mask = encoder_input_attention_mask,
-                max_length = 256,
-                decoder_start_token_id = model.config.decoder_start_token_id,
-                num_beams = opt.num_beams,
-                num_return_sequences = opt.num_return_sequences,
-                graph_batch = batch_graphs
-            )
+            if opt.model == "rgat" or opt.model == "rtransformer":
+                model_outputs = model.generate(
+                    input_ids = encoder_input_ids,
+                    attention_mask = encoder_input_attention_mask,
+                    max_length = 256,
+                    decoder_start_token_id = model.config.decoder_start_token_id,
+                    num_beams = opt.num_beams,
+                    num_return_sequences = opt.num_return_sequences,
+                    graph_batch = batch_graphs
+                )
+            else:
+                model_outputs = model.generate(
+                    input_ids = encoder_input_ids,
+                    attention_mask = encoder_input_attention_mask,
+                    max_length = 256,
+                    decoder_start_token_id = model.config.decoder_start_token_id,
+                    num_beams = opt.num_beams,
+                    num_return_sequences = opt.num_return_sequences
+                )
 
             model_outputs = model_outputs.view(len(batch_inputs), opt.num_return_sequences, model_outputs.shape[1])
             if opt.target_type == "sql":

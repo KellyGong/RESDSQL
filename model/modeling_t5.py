@@ -348,8 +348,8 @@ class T5LayerRGAT(nn.Module):
     def graph_caption_batch(self, hidden_states, graph_batch, relation_emb):
         g_batch = []
         for i, graph in enumerate(graph_batch):
-            # g, edge_type = graph['graph'], graph['graph'].edata['type']
-            g, edge_type = graph, graph.edata['type']
+            g, edge_type = graph['graph'], graph['graph'].edata['type']
+            # g, edge_type = graph, graph.edata['type']
             edge_feats = relation_emb(edge_type)
             node_feats = hidden_states[i][:g.number_of_nodes()]
             g.ndata['x'] = node_feats
@@ -360,7 +360,7 @@ class T5LayerRGAT(nn.Module):
         g_batch_one = self.rgat.forward_g(g_batch_one)
         g_batch = dgl.unbatch(g_batch_one)
         for i, graph in enumerate(graph_batch):
-            hidden_states[i][:graph.number_of_nodes()] = g_batch[i].ndata['x']
+            hidden_states[i][:graph['graph'].number_of_nodes()] = g_batch[i].ndata['x']
         return hidden_states
     
     def graph_caption(self, hidden_states, graph_batch, relation_emb):
@@ -371,7 +371,6 @@ class T5LayerRGAT(nn.Module):
         for i, graph in enumerate(graph_batch):
             hidden_states[i] = self.graph_caption_one(hidden_states[i], graph, \
                                                       graph.edata['type'], relation_emb)
-
         return hidden_states
 
     def graph_caption_one(self, hidden_state, graph, edges, relation_emb):
@@ -393,18 +392,13 @@ class T5LayerRTransformer(nn.Module):
         self.filter = nn.Linear(config.d_ff, config.d_model, bias=False)
         self.layer_norm = T5LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout_rate)
-        self.dropout_gnn = nn.Dropout(config.dropout_rate)
     
     def forward(self, hidden_states, graph_batch, relation_emb, **kwargs):
         hs_norm = self.layer_norm(hidden_states)
         graph_rep = self.graph_caption(hs_norm, graph_batch, relation_emb, **kwargs)
 
         output = F.elu(graph_rep)
-        output = self.dropout_gnn(output)
-        # output = output.view_as(hidden_states)
-
         layer_output = hidden_states + self.dropout(output)
-        # pdb.set_trace()
         return layer_output
     
     def map_cpu_to_gpu(self, graph_batch):
@@ -418,7 +412,7 @@ class T5LayerRTransformer(nn.Module):
         :param hidden_states: [bsz x input_max_length x d_model]
         :return: hidden states with graph caption, while keeping the other reps
         '''
-        graph_batch = self.map_cpu_to_gpu(graph_batch)
+        # graph_batch = self.map_cpu_to_gpu(graph_batch)
         for i, graph in enumerate(graph_batch):
             hidden_states[i] = self.graph_caption_one(hidden_states[i], graph, \
                                                       graph['graph'].edata['type'], relation_emb, **kwargs)
@@ -431,7 +425,7 @@ class T5LayerRTransformer(nn.Module):
         node_feats = hidden_state[:num_nodes]
         edge_feats = relation_emb(edges)
 
-        struct_rep, edge_feats = self.rtransformer(node_feats, edge_feats, graph, relation_emb, **kwargs)
+        struct_rep = self.rtransformer(node_feats, graph, relation_emb, **kwargs)
         hidden_state[:num_nodes] = struct_rep
         
         return hidden_state
@@ -737,9 +731,10 @@ class T5Block(nn.Module):
             self.layer.append(T5LayerCrossAttention(config))
 
         self.layer.append(T5LayerFF(config))
+        self.structure_encoder = config.structure_encoder
 
         # TODO: Jinyang
-        if not self.is_decoder:
+        if not self.is_decoder and config.structure_encoder == 'rgat':
             self.rgat_layer = T5LayerRGAT(config)
 
     def forward(
@@ -835,7 +830,7 @@ class T5Block(nn.Module):
         hidden_states = self.layer[-1](hidden_states)
 
         '''we replace the original representations of tokens with rgat-ed reps'''
-        if not self.is_decoder:
+        if not self.is_decoder and self.structure_encoder == 'rgat':
             hidden_states = self.rgat_layer(hidden_states, graph_batch, relation_emb, 
                                             in_degree_emb=in_degree_emb, 
                                             out_degree_emb=out_degree_emb, 
@@ -956,9 +951,9 @@ class T5PreTrainedModel(PreTrainedModel):
 class T5Stack(T5PreTrainedModel):
     def __init__(self, config, embed_tokens=None):
         super().__init__(config)
-
         self.embed_tokens = embed_tokens
         self.is_decoder = config.is_decoder
+        self.structure_encoder = config.structure_encoder
 
         self.block = nn.ModuleList(
             [T5Block(config, has_relative_attention_bias=bool(i == 0)) for i in range(config.num_layers)]
@@ -975,11 +970,17 @@ class T5Stack(T5PreTrainedModel):
 
         # relational T5:
         # TODO: Jinyang Li:
-        self.relation_emb = nn.Embedding(25, config.d_model)
-        # self.relation_weight = nn.Embedding(25, config.d_model)
-        # self.out_degree_emb = nn.Embedding(25, config.d_model)
-        # self.in_degree_emb = nn.Embedding(25, config.d_model)
-        # self.path_len_emb = nn.Embedding(25, 1)
+        if not self.is_decoder:
+            self.relation_emb = nn.Embedding(25, config.d_model)
+        
+            if self.structure_encoder == 'rtransformer':
+                self.relation_weight = nn.Embedding(25, config.d_model)
+                self.out_degree_emb = nn.Embedding(25, config.d_model)
+                self.in_degree_emb = nn.Embedding(25, config.d_model)
+                self.path_len_emb = nn.Embedding(25, 1)
+
+                self.rtransformer_layer = T5LayerRTransformer(config)
+
 
     @add_start_docstrings(PARALLELIZE_DOCSTRING)
     def parallelize(self, device_map=None):
@@ -1163,25 +1164,57 @@ class T5Stack(T5PreTrainedModel):
                     None,  # past_key_value is always None with gradient checkpointing
                 )
             else:
-                layer_outputs = layer_module(
-                    hidden_states,
-                    attention_mask=extended_attention_mask,
-                    position_bias=position_bias,
-                    encoder_hidden_states=encoder_hidden_states,
-                    encoder_attention_mask=encoder_extended_attention_mask,
-                    encoder_decoder_position_bias=encoder_decoder_position_bias,
-                    layer_head_mask=layer_head_mask,
-                    cross_attn_layer_head_mask=cross_attn_layer_head_mask,
-                    past_key_value=past_key_value,
-                    use_cache=use_cache,
-                    output_attentions=output_attentions,
-                    graph_batch=graph_batch,
-                    relation_emb=self.relation_emb,
-                    # out_degree_emb=self.out_degree_emb,
-                    # in_degree_emb=self.in_degree_emb,
-                    # path_len_emb=self.path_len_emb,
-                    # relation_weight=self.relation_weight
-                )
+                if not self.is_decoder and self.structure_encoder == 'rtransformer':
+                    layer_outputs = layer_module(
+                        hidden_states,
+                        attention_mask=extended_attention_mask,
+                        position_bias=position_bias,
+                        encoder_hidden_states=encoder_hidden_states,
+                        encoder_attention_mask=encoder_extended_attention_mask,
+                        encoder_decoder_position_bias=encoder_decoder_position_bias,
+                        layer_head_mask=layer_head_mask,
+                        cross_attn_layer_head_mask=cross_attn_layer_head_mask,
+                        past_key_value=past_key_value,
+                        use_cache=use_cache,
+                        output_attentions=output_attentions,
+                        graph_batch=graph_batch,
+                        relation_emb=self.relation_emb,
+                        out_degree_emb=self.out_degree_emb,
+                        in_degree_emb=self.in_degree_emb,
+                        path_len_emb=self.path_len_emb,
+                        relation_weight=self.relation_weight
+                    )
+                elif not self.is_decoder and self.structure_encoder == 'rgat':
+                    layer_outputs = layer_module(
+                        hidden_states,
+                        attention_mask=extended_attention_mask,
+                        position_bias=position_bias,
+                        encoder_hidden_states=encoder_hidden_states,
+                        encoder_attention_mask=encoder_extended_attention_mask,
+                        encoder_decoder_position_bias=encoder_decoder_position_bias,
+                        layer_head_mask=layer_head_mask,
+                        cross_attn_layer_head_mask=cross_attn_layer_head_mask,
+                        past_key_value=past_key_value,
+                        use_cache=use_cache,
+                        output_attentions=output_attentions,
+                        graph_batch=graph_batch,
+                        relation_emb=self.relation_emb
+                    )
+                else:
+                    layer_outputs = layer_module(
+                        hidden_states,
+                        attention_mask=extended_attention_mask,
+                        position_bias=position_bias,
+                        encoder_hidden_states=encoder_hidden_states,
+                        encoder_attention_mask=encoder_extended_attention_mask,
+                        encoder_decoder_position_bias=encoder_decoder_position_bias,
+                        layer_head_mask=layer_head_mask,
+                        cross_attn_layer_head_mask=cross_attn_layer_head_mask,
+                        past_key_value=past_key_value,
+                        use_cache=use_cache,
+                        output_attentions=output_attentions,
+                        graph_batch=graph_batch
+                    )
 
             # layer_outputs is a tuple with:
             # hidden-states, key-value-states, (self-attention position bias), (self-attention weights), (cross-attention position bias), (cross-attention weights)
@@ -1213,6 +1246,13 @@ class T5Stack(T5PreTrainedModel):
 
         hidden_states = self.final_layer_norm(hidden_states)
         hidden_states = self.dropout(hidden_states)
+
+        if not self.is_decoder and self.structure_encoder == 'rtransformer':
+            hidden_states = hidden_states + self.rtransformer_layer(hidden_states, graph_batch, self.relation_emb, 
+                                                                    in_degree_emb=self.in_degree_emb, 
+                                                                    out_degree_emb=self.out_degree_emb, 
+                                                                    path_len_emb=self.path_len_emb,
+                                                                    relation_weight=self.relation_weight)
 
         # Add last layer
         if output_hidden_states:

@@ -96,15 +96,11 @@ class Rel_Transformer_Layer(nn.Module):
         g.ndata['x'] = node_feat
         return g
 
-    def forward(self, x, lgx, graph, relation_emb, **kwargs):
+    def forward(self, x, graph, relation_emb, **kwargs):
         """ @Params:
                 x: node feats, num_nodes x ndim
-                lgx: edge feats, num_edges x edim
                 g: dgl.graph
         """
-        # set the same device:
-        g = graph['graph']
-        edge_type = graph['graph'].edata['type']
         # g = graph
         # pre-mapping q/k/v affine
 
@@ -134,4 +130,4 @@ class Rel_Transformer_Layer(nn.Module):
         
         out_x = self.ffn(out_x)
 
-        return out_x, lgx
+        return out_x
