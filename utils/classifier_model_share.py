@@ -95,31 +95,36 @@ class MyClassifier_Share(nn.Module):
 
     def table_column_cls(
         self,
-        encoder_input_ids,
-        encoder_input_attention_mask,
-        batch_aligned_question_ids,
+        tokenized_questions_inputs,
+        tokenized_schema_inputs_batch,
         batch_aligned_column_info_ids,
         batch_aligned_table_name_ids,
         batch_column_number_in_each_table
     ):
-        batch_size = encoder_input_ids.shape[0]
-        
-        encoder_output = self.plm_encoder(
-            input_ids = encoder_input_ids,
-            attention_mask = encoder_input_attention_mask,
-            return_dict = True
-        ) # encoder_output["last_hidden_state"].shape = (batch_size x seq_length x hidden_size)
+        batch_size = len(batch_column_number_in_each_table)
+
+        encoder_question_output = self.plm_encoder(
+            input_ids=tokenized_questions_inputs["input_ids"],
+            attention_mask=tokenized_questions_inputs["attention_mask"],
+            return_dict=True
+        )['pooler_output']
+
+        encoder_schema_output = [self.plm_encoder(
+            input_ids=tokenized_schema_inputs["input_ids"],
+            attention_mask=tokenized_schema_inputs["attention_mask"],
+            return_dict=True
+        ) for tokenized_schema_inputs in tokenized_schema_inputs_batch]
 
         batch_table_name_cls_logits, batch_column_info_cls_logits = [], []
 
         # handle each data in current batch
         for batch_id in range(batch_size):
             column_number_in_each_table = batch_column_number_in_each_table[batch_id]
-            sequence_embeddings = encoder_output["last_hidden_state"][batch_id, :, :] # (seq_length x hidden_size)
-            
+            schema_embeddings = encoder_schema_output[batch_id]["last_hidden_state"] # (table_num * column_num * hidden_size)
             # obtain the embeddings of tokens in the question
-            question_token_embeddings = sequence_embeddings[batch_aligned_question_ids[batch_id], :]
+            question_token_embeddings = encoder_question_output[batch_id]
 
+            # FIXME: the following code is not efficient
             # obtain table ids for each table
             aligned_table_name_ids = batch_aligned_table_name_ids[batch_id]
             # obtain column ids for each column
@@ -175,18 +180,16 @@ class MyClassifier_Share(nn.Module):
 
     def forward(
         self,
-        encoder_input_ids,
-        encoder_attention_mask,
-        batch_aligned_question_ids,
+        tokenized_questions_inputs,
+        tokenized_schema_inputs_batch,
         batch_aligned_column_info_ids,
         batch_aligned_table_name_ids,
         batch_column_number_in_each_table,
     ):  
         batch_table_name_cls_logits, batch_column_info_cls_logits \
             = self.table_column_cls(
-            encoder_input_ids,
-            encoder_attention_mask,
-            batch_aligned_question_ids,
+            tokenized_questions_inputs,
+            tokenized_schema_inputs_batch,
             batch_aligned_column_info_ids,
             batch_aligned_table_name_ids,
             batch_column_number_in_each_table
