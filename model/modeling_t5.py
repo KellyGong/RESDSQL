@@ -392,13 +392,17 @@ class T5LayerRTransformer(nn.Module):
         self.filter = nn.Linear(config.d_ff, config.d_model, bias=False)
         self.layer_norm = T5LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout_rate)
+        self.warmup_steps = 5600
+        self.current_steps = 0
     
     def forward(self, hidden_states, graph_batch, relation_emb, **kwargs):
+        self.current_steps += 1
+        scale = self.current_steps / self.warmup_steps if self.current_steps < self.warmup_steps else 1.0
         hs_norm = self.layer_norm(hidden_states)
         graph_rep = self.graph_caption(hs_norm, graph_batch, relation_emb, **kwargs)
 
         output = F.elu(graph_rep)
-        layer_output = hidden_states + self.dropout(output)
+        layer_output = hidden_states + scale * self.dropout(output)
         return layer_output
     
     def map_cpu_to_gpu(self, graph_batch):
@@ -974,7 +978,7 @@ class T5Stack(T5PreTrainedModel):
             self.relation_emb = nn.Embedding(25, config.d_model)
         
             if self.structure_encoder == 'rtransformer':
-                self.relation_weight = nn.Embedding(25, config.d_model)
+                self.relation_weight = nn.Embedding(25, 1)
                 self.out_degree_emb = nn.Embedding(25, config.d_model)
                 self.in_degree_emb = nn.Embedding(25, config.d_model)
                 self.path_len_emb = nn.Embedding(25, 1)
@@ -1248,11 +1252,11 @@ class T5Stack(T5PreTrainedModel):
         hidden_states = self.dropout(hidden_states)
 
         if not self.is_decoder and self.structure_encoder == 'rtransformer':
-            hidden_states = hidden_states + self.rtransformer_layer(hidden_states, graph_batch, self.relation_emb, 
-                                                                    in_degree_emb=self.in_degree_emb, 
-                                                                    out_degree_emb=self.out_degree_emb, 
-                                                                    path_len_emb=self.path_len_emb,
-                                                                    relation_weight=self.relation_weight)
+            hidden_states = self.rtransformer_layer(hidden_states, graph_batch, self.relation_emb, 
+                                                            in_degree_emb=self.in_degree_emb, 
+                                                            out_degree_emb=self.out_degree_emb, 
+                                                            path_len_emb=self.path_len_emb,
+                                                            relation_weight=self.relation_weight)
 
         # Add last layer
         if output_hidden_states:
@@ -1788,7 +1792,7 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
                 graph_batch=graph_batch, # TODO: Jinyang
-                relation_emb=relation_emb # TODO: Jinyang
+                relation_emb=relation_emb 
             )
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(

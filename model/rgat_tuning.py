@@ -71,7 +71,7 @@ class RGAT_Layer(nn.Module):
 
 
 class Rel_Transformer_Layer(nn.Module):
-    def __init__(self, ndim, edim, num_heads=1, feat_drop=0.2):
+    def __init__(self, ndim, edim, num_heads=4, feat_drop=0.2):
         super(Rel_Transformer_Layer, self).__init__()
         self.ndim, self.edim = ndim, edim
         self.num_heads = num_heads
@@ -96,7 +96,7 @@ class Rel_Transformer_Layer(nn.Module):
         g.ndata['x'] = node_feat
         return g
 
-    def forward(self, x, graph, relation_emb, **kwargs):
+    def forward(self, old_x, graph, relation_emb, **kwargs):
         """ @Params:
                 x: node feats, num_nodes x ndim
                 g: dgl.graph
@@ -110,13 +110,13 @@ class Rel_Transformer_Layer(nn.Module):
             kwargs['in_degree_emb'], kwargs['out_degree_emb'], kwargs['path_len_emb'], kwargs['relation_weight']
         # degree embedding
 
-        x = x + in_degree_emb(graph['in_degree']) + out_degree_emb(graph['out_degree'])
+        x = old_x + in_degree_emb(graph['in_degree'].to('cuda')) + out_degree_emb(graph['out_degree'].to('cuda'))
 
-        dist_2d_emb = path_len_emb(graph['dist']).squeeze(-1)
+        dist_2d_emb = path_len_emb(graph['dist'].to('cuda')).squeeze(-1)
 
-        edge_type_weight = (relation_emb.weight * rel_weight_emb.weight).sum(dim=-1) / math.sqrt(self.d_k)
+        # edge_type_weight = (relation_emb.weight * rel_weight_emb.weight).sum(dim=-1) / math.sqrt(self.d_k)
 
-        path_2d_emb = (edge_type_weight[graph['path_edge_type']] * graph['path_average_weight']).sum(dim=-1)
+        path_2d_emb = (rel_weight_emb(graph['path_edge_type'].to('cuda')).squeeze(-1) * graph['path_average_weight'].to('cuda')).sum(dim=-1)
 
         q, k, v = self.affine_q(self.feat_dropout(x)), self.affine_k(self.feat_dropout(x)), self.affine_v(self.feat_dropout(x))
     
@@ -126,8 +126,7 @@ class Rel_Transformer_Layer(nn.Module):
         qk_attn = torch.softmax(qk_dot, dim=-1)
 
         out_x = torch.matmul(qk_attn, v)
-        out_x = self.layernorm(x + self.affine_o(out_x.view(-1, self.num_heads * self.d_k)))
-        
+        out_x = old_x + self.affine_o(out_x.view(-1, self.num_heads * self.d_k))
         out_x = self.ffn(out_x)
 
         return out_x

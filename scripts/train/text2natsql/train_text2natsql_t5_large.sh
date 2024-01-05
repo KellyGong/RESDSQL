@@ -28,6 +28,20 @@ CUDA_VISIBLE_DEVICES=4 python text2sql.py \
     --mode train \
     --train_filepath "./data/preprocessed_data/resdsql_train_spider_natsql.json"
 
+CUDA_VISIBLE_DEVICES=6 python text2sql.py \
+    --batch_size 8 \
+    --gradient_descent_step 4 \
+    --learning_rate 5e-5 \
+    --epochs 128 \
+    --seed 42 \
+    --save_path "./models/text2natsql-t5-large-graph-rtransformer" \
+    --tensorboard_save_path "./tensorboard_log/text2natsql-t5-large-graph-rtransformer" \
+    --model_name_or_path "./llm/t5-large" \
+    --model "rtransformer" \
+    --use_adafactor \
+    --mode train \
+    --train_filepath "./data/preprocessed_data/resdsql_train_spider_natsql.json"
+
 # select the best text2natsql-t5-large ckpt
 python -u evaluate_text2sql_ckpts.py \
     --batch_size 8 \

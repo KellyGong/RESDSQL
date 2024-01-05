@@ -192,6 +192,8 @@ def _train(opt):
     train_step = 0
     for epoch in range(opt.epochs):
         print(f"This is epoch {epoch+1}.")
+        if epoch > 0.8 * opt.epochs:
+            break
         pbar = tqdm(train_dataloder)
         for batch in pbar:
             train_step += 1
