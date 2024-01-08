@@ -61,3 +61,29 @@ class ClassifierLoss():
         column_loss = self.compute_batch_loss(batch_column_info_cls_logits, batch_column_labels, batch_size)
 
         return table_loss + column_loss
+
+
+class MSELossBatch():
+    def __init__(self):
+        self.mse_loss = nn.MSELoss(reduction = 'mean')
+
+    def compute_batch_loss(self, batch_logits, batch_labels, batch_size):
+        loss = 0
+        for logits, labels in zip(batch_logits, batch_labels):
+            loss += self.mse_loss((logits + 1) / 2, labels.float())
+        
+        return loss/batch_size
+    
+    def compute_loss(
+        self,
+        batch_table_name_cls_logits,
+        batch_table_labels,
+        batch_column_info_cls_logits,
+        batch_column_labels
+    ):
+        batch_size = len(batch_table_labels)
+
+        table_loss = self.compute_batch_loss(batch_table_name_cls_logits, batch_table_labels, batch_size)
+        column_loss = self.compute_batch_loss(batch_column_info_cls_logits, batch_column_labels, batch_size)
+
+        return table_loss + column_loss

@@ -12,7 +12,7 @@ from utils.classifier_metric.evaluator import cls_metric, auc_metric
 from torch.utils.data import DataLoader
 from transformers import RobertaTokenizerFast, XLMRobertaTokenizerFast
 from utils.classifier_model_share import MyClassifier_Share
-from utils.classifier_loss import ClassifierLoss
+from utils.classifier_loss import ClassifierLoss, MSELossBatch
 from transformers.trainer_utils import set_seed
 from torch.utils.tensorboard import SummaryWriter
 from utils.load_dataset import ColumnAndTableClassifierDataset
@@ -60,7 +60,9 @@ def parse_option():
     opt = parser.parse_args()
 
     return opt
-    
+
+torch.autograd.set_detect_anomaly(True)
+
 def prepare_batch_inputs_and_labels(batch, tokenizer):
     batch_size = len(batch)
     
@@ -174,7 +176,10 @@ def prepare_batch_inputs_and_labels(batch, tokenizer):
                 batch_column_number_in_each_table[batch_id][t_id] = len(batch_aligned_column_labels[batch_id][t_id])
 
     
-    batch_aligned_column_labels = [torch.LongTensor(column_labels) for aligned_column_labels in batch_aligned_column_labels for column_labels in aligned_column_labels]
+    # batch_aligned_column_labels = [torch.LongTensor(column_labels) for aligned_column_labels in batch_aligned_column_labels for column_labels in aligned_column_labels]
+    for i in range(len(batch_aligned_column_labels)):
+        for j in range(len(batch_aligned_column_labels[i])):
+            batch_aligned_column_labels[i][j] = torch.LongTensor(batch_aligned_column_labels[i][j])
     batch_table_labels = [torch.LongTensor(table_labels) for table_labels in batch_table_labels]
 
     # print("\n".join(tokenizer.batch_decode(encoder_input_ids, skip_special_tokens = True)))
@@ -182,7 +187,7 @@ def prepare_batch_inputs_and_labels(batch, tokenizer):
     if torch.cuda.is_available():
         tokenized_questions_inputs = tokenized_questions_inputs.to('cuda')
         tokenized_schema_inputs_batch = [tokenized_schema_inputs.to('cuda') for tokenized_schema_inputs in tokenized_schema_inputs_batch]
-        batch_aligned_column_labels = [column_labels.to('cuda') for aligned_column_labels in batch_aligned_column_labels for column_labels in aligned_column_labels]
+        batch_aligned_column_labels = [torch.cat(aligned_column_labels, dim=0).to('cuda') for aligned_column_labels in batch_aligned_column_labels]
         batch_table_labels = [table_labels.to('cuda') for table_labels in batch_table_labels]
     
     return tokenized_questions_inputs, tokenized_schema_inputs_batch, \
@@ -267,7 +272,8 @@ def _train(opt):
     )
 
     best_score, early_stop_step, train_step = 0, 0, 0
-    encoder_loss_func = ClassifierLoss(alpha = opt.alpha, gamma = opt.gamma)
+    # encoder_loss_func = ClassifierLoss(alpha = opt.alpha, gamma = opt.gamma)
+    encoder_loss_func = MSELossBatch()
     
     for epoch in range(opt.epochs):
         print(f"This is epoch {epoch+1}.")
@@ -323,31 +329,32 @@ def _train(opt):
                 table_pred_probs_for_auc, column_pred_probs_for_auc = [], []
 
                 for batch in dev_dataloder:
-                    encoder_input_ids, encoder_input_attention_mask, \
-                        batch_column_labels, batch_table_labels, batch_aligned_question_ids, \
+                    tokenized_questions_inputs, tokenized_schema_inputs_batch, \
+                        batch_column_labels, batch_table_labels, \
                         batch_aligned_column_info_ids, batch_aligned_table_name_ids, \
                         batch_column_number_in_each_table = prepare_batch_inputs_and_labels(batch, tokenizer)
 
                     with torch.no_grad():
                         model_outputs = model(
-                            encoder_input_ids,
-                            encoder_input_attention_mask, 
-                            batch_aligned_question_ids,
+                            tokenized_questions_inputs,
+                            tokenized_schema_inputs_batch, 
                             batch_aligned_column_info_ids,
                             batch_aligned_table_name_ids,
                             batch_column_number_in_each_table
                         )
 
                     for batch_id, table_logits in enumerate(model_outputs["batch_table_name_cls_logits"]):
-                        table_pred_probs = torch.nn.functional.softmax(table_logits, dim = 1)
+                        # table_pred_probs = torch.nn.functional.softmax(table_logits, dim = 1)
                         
-                        table_pred_probs_for_auc.extend(table_pred_probs[:, 1].cpu().tolist())
+                        # table_pred_probs_for_auc.extend(table_pred_probs[:, 1].cpu().tolist())
+                        table_pred_probs_for_auc.extend(((1 + table_logits) / 2).cpu().tolist())
                         table_labels_for_auc.extend(batch_table_labels[batch_id].cpu().tolist())
 
                     for batch_id, column_logits in enumerate(model_outputs["batch_column_info_cls_logits"]):
-                        column_pred_probs = torch.nn.functional.softmax(column_logits, dim = 1)
+                        # column_pred_probs = torch.nn.functional.softmax(column_logits, dim = 1)
             
-                        column_pred_probs_for_auc.extend(column_pred_probs[:, 1].cpu().tolist())
+                        # column_pred_probs_for_auc.extend(column_pred_probs[:, 1].cpu().tolist())
+                        column_pred_probs_for_auc.extend(((1 + column_logits) / 2).cpu().tolist())
                         column_labels_for_auc.extend(batch_column_labels[batch_id].cpu().tolist())
 
                 # calculate AUC score for table classification
@@ -411,7 +418,7 @@ def _test(opt):
     )
 
     # initialize model
-    model = MyClassifier(
+    model = MyClassifier_Share(
         model_name_or_path = opt.save_path,
         vocab_size = len(tokenizer),
         mode = opt.mode
@@ -429,16 +436,15 @@ def _test(opt):
     returned_table_pred_probs, returned_column_pred_probs = [], []
 
     for batch in tqdm(dataloder):
-        encoder_input_ids, encoder_input_attention_mask, \
-            batch_column_labels, batch_table_labels, batch_aligned_question_ids, \
-            batch_aligned_column_info_ids, batch_aligned_table_name_ids, \
-            batch_column_number_in_each_table = prepare_batch_inputs_and_labels(batch, tokenizer)
+        tokenized_questions_inputs, tokenized_schema_inputs_batch, \
+                batch_column_labels, batch_table_labels, \
+                batch_aligned_column_info_ids, batch_aligned_table_name_ids, \
+                batch_column_number_in_each_table = prepare_batch_inputs_and_labels(batch, tokenizer)
 
         with torch.no_grad():
             model_outputs = model(
-                encoder_input_ids,
-                encoder_input_attention_mask,
-                batch_aligned_question_ids,
+                tokenized_questions_inputs,
+                tokenized_schema_inputs_batch,
                 batch_aligned_column_info_ids,
                 batch_aligned_table_name_ids,
                 batch_column_number_in_each_table

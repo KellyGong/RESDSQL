@@ -323,12 +323,26 @@ def _test(opt):
         opt.model_name_or_path
     )
 
-    # model = GraphLLModel(tokenizer, opt.save_path, config)
-    # model.from_pretrained(opt.save_path)
-    model_class = MT5ForConditionalGeneration if "mt5" in opt.save_path else T5ForConditionalGeneration
+    # # model = GraphLLModel(tokenizer, opt.save_path, config)
+    # # model.from_pretrained(opt.save_path)
+    # model_class = MT5ForConditionalGeneration if "mt5" in opt.save_path else T5ForConditionalGeneration
 
-    # initialize model
-    model = model_class.from_pretrained(opt.save_path)
+    # # initialize model
+    # model = model_class.from_pretrained(opt.save_path)
+
+    if opt.model == "transformer":
+        model_class = MT5ForConditionalGeneration if "mt5" in opt.save_path else T5ForConditionalGeneration
+        # initialize model
+        model = model_class.from_pretrained(opt.save_path)
+        model.resize_token_embeddings(len(tokenizer))
+
+    elif opt.model == "rgat" or opt.model == "rtransformer":
+        config = AutoConfig.from_pretrained(
+            opt.save_path
+        )
+        config.structure_encoder = opt.model
+        # update_config_with_graph_property(config, train_dataset.sequence_graphs_property)
+        model = GraphLLModel(tokenizer, opt.save_path, config)
     if torch.cuda.is_available():
         model = model.cuda()
 
@@ -338,7 +352,7 @@ def _test(opt):
         batch_inputs = [data[0] for data in batch]
         batch_db_ids = [data[1] for data in batch]
         batch_tc_original = [data[2] for data in batch]
-        batch_graphs = [data[3].to('cuda') for data in batch]
+        batch_graphs = [map_graph_dict_to_cuda(data[3], ['graph']) for data in batch]
 
         tokenized_inputs = tokenizer(
             batch_inputs, 

@@ -56,3 +56,18 @@ python -u evaluate_text2sql_ckpts.py \
     --num_beams 8 \
     --num_return_sequences 8 \
     --target_type "natsql"
+
+CUDA_VISIBLE_DEVICES=6 python -u evaluate_text2sql_ckpts.py \
+    --batch_size 8 \
+    --seed 42 \
+    --save_path "./models/text2natsql-t5-large-graph-rtransformer" \
+    --eval_results_path "./eval_results/text2natsql-t5-large-graph-rtransformer" \
+    --mode eval \
+    --dev_filepath "./data/preprocessed_data/resdsql_dev_natsql.json" \
+    --original_dev_filepath "./data/spider/dev.json" \
+    --db_path "./database" \
+    --model "rtransformer" \
+    --tables_for_natsql "./data/preprocessed_data/tables_for_natsql.json" \
+    --num_beams 8 \
+    --num_return_sequences 8 \
+    --target_type "natsql"

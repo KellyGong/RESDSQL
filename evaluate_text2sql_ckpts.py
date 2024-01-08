@@ -26,12 +26,10 @@ def parse_option():
                             t5-large, https://huggingface.co/t5-large;
                             t5-3b, https://huggingface.co/t5-3b;
                         ''')
-    parser.add_argument('--dev_graph_filepath', type = str, default= "data/preprocessed_data/resdsql_dev_spider_graph.pkl",
-                        help = 'file path of test2sql set graph.')
-    parser.add_argument('--dev_graph_property_filepath', type = str, default= "data/preprocessed_data/resdsql_dev_spider_graph_property.pkl",
-                        help = 'file path of test2sql set graph.')
     parser.add_argument('--dev_filepath', type = str, default = "./data/pre-processing/resdsql_test.json",
                         help = 'file path of test2sql dev set.')
+    parser.add_argument('--dev_preprocessed_dataset', type = str, default = "./data/preprocessed_data/resdsql_dev_spider.pkl",
+                        help = 'preprocessed file of dev dataset')
     parser.add_argument('--original_dev_filepath', type = str, default = "./data/spider/dev.json",
                         help = 'file path of the original dev set (for registing evaluator).')
     parser.add_argument('--db_path', type = str, default = "./data/spider/database",
@@ -44,6 +42,8 @@ def parse_option():
                         help = 'the number of returned sequences in model.generate() function (num_return_sequences <= num_beams).')
     parser.add_argument("--target_type", type = str, default = "sql",
                         help = "sql or natsql.")
+    parser.add_argument('--model', type = str, default = "rgat",
+                        help = 'transformer or rgat or rtransformer.')
     parser.add_argument("--output", type = str, default = "predicted_sql.txt")
     
     opt = parser.parse_args()
