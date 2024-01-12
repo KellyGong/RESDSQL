@@ -6,7 +6,7 @@
     "configurations": [
         {
             "name": "train",
-            "env": {"CUDA_VISIBLE_DEVICES":"7"},
+            "env": {"CUDA_VISIBLE_DEVICES":"0"},
             "type": "python",
             "request": "launch",
             "program": "text2sql.py",
@@ -77,8 +77,8 @@
             "justMyCode": false,
             "args": ["--batch_size", "16", 
                      "--seed", "42",
-                     "--save_path", "./models/text2natsql-t5-base-graph2",
-                     "--eval_results_path", "./eval_results/text2natsql-t5-base-graph2",
+                     "--save_path", "./models/text2natsql-t5-3b",
+                     "--eval_results_path", "./eval_results/text2natsql-t5-3b",
                      "--mode", "eval", "--dev_filepath", "./data/preprocessed_data/resdsql_dev_natsql.json",
                      "--original_dev_filepath", "./data/spider/dev.json", 
                      "--db_path", "./database",

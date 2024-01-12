@@ -42,7 +42,7 @@ def parse_option():
                         help = 'the number of returned sequences in model.generate() function (num_return_sequences <= num_beams).')
     parser.add_argument("--target_type", type = str, default = "sql",
                         help = "sql or natsql.")
-    parser.add_argument('--model', type = str, default = "rgat",
+    parser.add_argument('--model', type = str, default = "transformer",
                         help = 'transformer or rgat or rtransformer.')
     parser.add_argument("--output", type = str, default = "predicted_sql.txt")
     
