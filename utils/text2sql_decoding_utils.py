@@ -141,7 +141,8 @@ def decode_natsqls(
     batch_inputs,
     tokenizer,
     batch_tc_original,
-    table_dict
+    table_dict,
+    postprocessor=None
 ):
     batch_size = generator_outputs.shape[0]
     num_return_sequences = generator_outputs.shape[1]
@@ -160,8 +161,11 @@ def decode_natsqls(
             cursor = get_cursor_from_path(db_file_path)
             pred_sequence = tokenizer.decode(generator_outputs[batch_id, seq_id, :], skip_special_tokens = True)
 
+            if postprocessor is not None:
+                pred_sequence = postprocessor.postprocess(pred_sequence)
             pred_natsql = pred_sequence.split("|")[-1].strip()
-            pred_natsql = pred_natsql.replace("='", "= '").replace("!=", " !=").replace(",", " ,")
+
+            pred_natsql = pred_natsql.replace("='", "= '").replace("!=", " !=").replace(",", " ,").replace(". ", ".")
             old_pred_natsql = pred_natsql
             # if the predicted natsql has some fatal errors, try to correct it
             pred_natsql = fix_fatal_errors_in_natsql(pred_natsql, batch_tc_original[batch_id])

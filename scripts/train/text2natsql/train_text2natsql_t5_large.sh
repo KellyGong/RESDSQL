@@ -7,12 +7,12 @@ python -u text2sql.py \
     --learning_rate 5e-5 \
     --epochs 128 \
     --seed 42 \
-    --save_path "./models/text2natsql-t5-large-threshold" \
-    --tensorboard_save_path "./tensorboard_log/text2natsql-t5-large-threshold" \
+    --save_path "./models/text2natsql-t5-large-split-token" \
+    --tensorboard_save_path "./tensorboard_log/text2natsql-t5-large-split-token" \
     --model_name_or_path "./llm/t5-large" \
     --use_adafactor \
     --mode train \
-    --train_filepath "./data/preprocessed_data/resdsql_train_spider_natsql_threshold.json"
+    --train_filepath "./data/preprocessed_data/resdsql_train_spider_natsql.json"
 
 CUDA_VISIBLE_DEVICES=4 python text2sql.py \
     --batch_size 8 \
@@ -46,10 +46,10 @@ CUDA_VISIBLE_DEVICES=6 python text2sql.py \
 python -u evaluate_text2sql_ckpts.py \
     --batch_size 8 \
     --seed 42 \
-    --save_path "./models/text2natsql-t5-large-threshold" \
-    --eval_results_path "./eval_results/text2natsql-t5-large-threshold" \
+    --save_path "./models/text2natsql-t5-large-split-token" \
+    --eval_results_path "./eval_results/text2natsql-t5-large-split-token" \
     --mode eval \
-    --dev_filepath "./data/preprocessed_data/resdsql_dev_natsql_threshold.json" \
+    --dev_filepath "./data/preprocessed_data/resdsql_dev_natsql.json" \
     --original_dev_filepath "./data/spider/dev.json" \
     --db_path "./database" \
     --tables_for_natsql "./data/preprocessed_data/tables_for_natsql.json" \

@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import torch
 import argparse
@@ -21,7 +22,10 @@ from utils.text2sql_decoding_utils import decode_sqls, decode_natsqls
 from utils.args import ModelArguments
 from transformers.models.auto import AutoConfig
 from model import GraphLLModel
+from tokenizer import TokenPreprocessor
 
+
+token_preprocessor = TokenPreprocessor()
 
 
 def parse_option():
@@ -103,6 +107,12 @@ def map_graph_dict_to_cuda(graph_dict, keys):
     for key in keys:
         graph_dict[key] = graph_dict[key].to('cuda')
     return graph_dict
+
+
+def split_sentence_to_subtokens(sentence):
+    split_tokens = re.split(r'([ .])', sentence)
+    split_tokens = [token for token in split_tokens]
+    return split_tokens
 
 
 def _train(opt):
@@ -202,7 +212,7 @@ def _train(opt):
             batch_sqls = [data[1] for data in batch]
             batch_db_ids = [data[2] for data in batch] # unused
             batch_tc_original = [data[3] for data in batch] # unused
-            batch_graphs = [map_graph_dict_to_cuda(data[4], ['graph']) for data in batch]
+            # batch_graphs = [map_graph_dict_to_cuda(data[4], ['graph']) for data in batch]
             
             # if epoch == 0:
             #     for batch_id in range(len(batch_inputs)):
@@ -210,21 +220,28 @@ def _train(opt):
             #         print(batch_sqls[batch_id])
             #         print("----------------------")
 
+            # batch_inputs_tokens = [split_sentence_to_subtokens(sentence) for sentence in batch_inputs]
+            batch_inputs_preprocessed = [token_preprocessor.preprocess(sentence) for sentence in batch_inputs]
+            batch_sql_preprocessed = [token_preprocessor.preprocess(sql) for sql in batch_sqls]
+
             tokenized_inputs = text2sql_tokenizer(
-                batch_inputs,
+                batch_inputs_preprocessed,
                 padding="max_length",
                 return_tensors="pt",
                 max_length=512,
                 truncation=True,
                 # is_split_into_words=True,
             )
+
+            # batch_sqls_tokens = [split_sentence_to_subtokens(sql) for sql in batch_sqls]
             
             tokenized_outputs = text2sql_tokenizer(
-                text_target=batch_sqls,
+                text_target=batch_sql_preprocessed,
                 padding="max_length",
                 return_tensors='pt',
                 max_length=256,
-                truncation=True
+                truncation=True,
+                # is_split_into_words=True,
             )
             
             encoder_input_ids = tokenized_inputs["input_ids"]
@@ -350,12 +367,16 @@ def _test(opt):
         batch_tc_original = [data[2] for data in batch]
         # batch_graphs = [map_graph_dict_to_cuda(data[3], ['graph']) for data in batch]
 
+        batch_inputs_preprocessed = [token_preprocessor.preprocess(sentence) for sentence in batch_inputs]
+        # batch_inputs_tokens = [split_sentence_to_subtokens(sentence) for sentence in batch_inputs]
+
         tokenized_inputs = tokenizer(
-            batch_inputs, 
+            batch_inputs_preprocessed, 
             return_tensors="pt",
             padding = "max_length",
             max_length = 512,
-            truncation = True
+            truncation = True,
+            # is_split_into_words = True
         )
         
         encoder_input_ids = tokenized_inputs["input_ids"]
@@ -396,22 +417,29 @@ def _test(opt):
                     batch_tc_original
                 )
             elif opt.target_type == "natsql":
-                predict_sqls += decode_natsqls(
+                pred_batch_sqls = decode_natsqls(
                     opt.db_path,
                     model_outputs,
                     batch_db_ids,
                     batch_inputs,
                     tokenizer,
                     batch_tc_original,
-                    table_dict
+                    table_dict,
+                    token_preprocessor
                 )
+                predict_sqls += pred_batch_sqls
             else:
                 raise ValueError()
     
     new_dir = "/".join(opt.output.split("/")[:-1]).strip()
     if new_dir != "":
         os.makedirs(new_dir, exist_ok = True)
-    
+
+    # for pred in predict_sqls:
+    #     print(pred)
+    #     pred = pred.replace('. ', '.')
+    #     print(pred)
+
     # save results
     with open(opt.output, "w", encoding = 'utf-8') as f:
         for pred in predict_sqls:
@@ -428,7 +456,7 @@ def _test(opt):
         print('exact_match score: {}'.format(spider_metric_result["exact_match"]))
         print('exec score: {}'.format(spider_metric_result["exec"]))
     
-        return spider_metric_result["exact_match"], spider_metric_result["exec"]
+        return spider_metric_result
 
 
 if __name__ == "__main__":

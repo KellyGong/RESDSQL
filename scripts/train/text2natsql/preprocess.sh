@@ -10,6 +10,15 @@ python preprocessing.py \
     --db_path "./database" \
     --target_type "natsql"
 
+python preprocessing.py \
+    --mode "train" \
+    --table_path "./data/spider/tables.json" \
+    --input_dataset_path "./data/spider/train.json" \
+    --natsql_dataset_path "./NatSQL/NatSQLv1_6/train_spider-natsql.json" \
+    --output_dataset_path "./data/preprocessed_data/preprocessed_train_natsql.json" \
+    --db_path "./database" \
+    --target_type "natsql"
+
 # preprocess dev dataset
 python preprocessing.py \
     --mode "eval" \

@@ -81,12 +81,9 @@ if __name__ == "__main__":
                 f.write("Evaluating...")
             
             opt.save_path = save_path + "/{}".format(ckpt_name)
-            em, exec = _test(opt)
+            eval_result = _test(opt)
             
-            eval_result = dict()
             eval_result["ckpt"] = opt.save_path
-            eval_result["EM"] = em
-            eval_result["EXEC"] = exec
 
             with open(opt.eval_results_path+"/{}.txt".format(ckpt_name), "w") as f:
                 f.write(json.dumps(eval_result, indent = 2, ensure_ascii = False))
@@ -95,12 +92,12 @@ if __name__ == "__main__":
     
     for eval_result in eval_results:
         print("ckpt name:", eval_result["ckpt"])
-        print("EM:", eval_result["EM"])
-        print("EXEC:", eval_result["EXEC"])
+        print("EM:", eval_result["exact_match"])
+        print("EXEC:", eval_result["exec"])
         print("-----------")
 
-    em_list = [er["EM"] for er in eval_results]
-    exec_list = [er["EXEC"] for er in eval_results]
+    em_list = [er["exact_match"] for er in eval_results]
+    exec_list = [er["exec"] for er in eval_results]
     em_and_exec_list = [em + exec for em, exec in zip(em_list, exec_list)]
 
     # find best EM ckpt

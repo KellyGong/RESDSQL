@@ -3,8 +3,7 @@ set -e
 device="0"
 
 python -u evaluate_text2sql_ckpts.py \
-    --batch_size 3 \
-    --device $device \
+    --batch_size 2 \
     --seed 42 \
     --save_path "./models/text2natsql-t5-3b" \
     --eval_results_path "./eval_results/text2natsql-t5-3b-spider-dk" \
