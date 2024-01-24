@@ -13,13 +13,13 @@ python text2sql_data_generator.py \
     --target_type "natsql"
 
 # predict probability for each schema item in the eval set
-python schema_item_classifier.py \
+python schema_item_classifier_share.py \
     --batch_size 32 \
     --device "0" \
     --seed 42 \
-    --save_path "./models/text2natsql_schema_item_classifier" \
+    --save_path "./models/text2natsql_schema_item_classifier_share" \
     --dev_filepath "./data/preprocessed_data/preprocessed_dev_natsql.json" \
-    --output_filepath "./data/preprocessed_data/dev_with_probs_natsql.json" \
+    --output_filepath "./data/preprocessed_data/dev_with_probs_natsql_share.json" \
     --use_contents \
     --mode "eval"
 

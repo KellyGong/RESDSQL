@@ -4,6 +4,8 @@ import argparse
 import random
 import numpy as np
 
+from sklearn.metrics import average_precision_score, recall_score, precision_score, f1_score
+
 NMIN = 1
 
 def parse_option():
@@ -38,12 +40,13 @@ def parse_option():
 
     return opt
 
+
 def lista_contains_listb(lista, listb):
     for b in listb:
         if b not in lista:
             return 0
-    
     return 1
+
 
 def prepare_input_and_output(opt, ranked_data):
     question = ranked_data["question"]
@@ -191,12 +194,32 @@ def generate_train_ranked_dataset(opt):
     with open(opt.output_dataset_path, "w") as f:
         f.write(json.dumps(output_dataset, indent = 2, ensure_ascii = False))
 
+
+def instance_metrics(pred_prob, pred, gold):
+    sample_len = len(pred_prob)
+    pred_array = np.zeros(sample_len)
+    pred_array[pred] = 1
+    gold_array = np.zeros(sample_len)
+    gold_array[gold] = 1
+    return {
+        "precision": precision_score(gold_array, pred_array),
+        "recall": recall_score(gold_array, pred_array),
+        "f1": f1_score(gold_array, pred_array),
+        "ap": average_precision_score(gold_array, pred_prob)
+    }
+
+
 def generate_eval_ranked_dataset(opt):
     with open(opt.input_dataset_path) as f:
         dataset = json.load(f)
 
     table_coverage_state_list, column_coverage_state_list = [], []
     output_dataset = []
+
+    reduce_ratio_length = []
+    table_metric2list = {"precision": [], "recall": [], "f1": [], "ap": []}
+    column_metric2list = {"precision": [], "recall": [], "f1": [], "ap": []}
+
     for data_id, data in enumerate(dataset):
         ranked_data = dict()
         ranked_data["question"] = data["question"]
@@ -209,7 +232,10 @@ def generate_eval_ranked_dataset(opt):
         ranked_data["db_id"] = data["db_id"]
         ranked_data["db_schema"] = []
 
+        schema_number, used_schema_number = 0, 0
+
         table_pred_probs = list(map(lambda x:round(x,4), data["table_pred_probs"]))
+        schema_number += len(table_pred_probs)
         # find ids of tables that have top-k probability
         # find ids of tables that have probability larger than threshold and top-k probability
         if opt.use_threshold:
@@ -220,18 +246,36 @@ def generate_eval_ranked_dataset(opt):
         else:
             topk_table_ids = np.argsort(-np.array(table_pred_probs), kind="stable")[:opt.topk_table_num].tolist()
         
+        used_schema_number += len(topk_table_ids)
+        
         # if the mode == eval, we record some information for calculating the coverage
         if opt.mode == "eval":
             used_table_ids = [idx for idx, label in enumerate(data["table_labels"]) if label == 1]
             table_coverage_state_list.append(lista_contains_listb(topk_table_ids, used_table_ids))
+
+            table_metric = instance_metrics(table_pred_probs, topk_table_ids, used_table_ids)
+            for key in table_metric:
+                table_metric2list[key].append(table_metric[key])
             
             for idx in range(len(data["db_schema"])):
                 used_column_ids = [idx for idx, label in enumerate(data["column_labels"][idx]) if label == 1]
                 if len(used_column_ids) == 0:
                     continue
                 column_pred_probs = list(map(lambda x:round(x,2), data["column_pred_probs"][idx]))
+                schema_number += len(column_pred_probs)
+
                 topk_column_ids = np.argsort(-np.array(column_pred_probs), kind="stable")[:opt.topk_column_num].tolist()
+                if opt.use_threshold:
+                    topk_column_ids = [idx for idx in topk_column_ids if column_pred_probs[idx] >= opt.threshold]
+                    if len(topk_column_ids) == 0:
+                        topk_column_ids = np.argsort(-np.array(column_pred_probs), kind="stable")[:opt.topk_column_num].tolist()
+                    used_schema_number += len(topk_column_ids)
                 column_coverage_state_list.append(lista_contains_listb(topk_column_ids, used_column_ids))
+                column_metric = instance_metrics(column_pred_probs, topk_column_ids, used_column_ids)
+                for key in column_metric:
+                    column_metric2list[key].append(column_metric[key])
+
+        reduce_ratio_length.append((schema_number - used_schema_number) / schema_number)
 
         # record top-k1 tables and top-k2 columns for each table
         for table_id in topk_table_ids:
@@ -239,10 +283,6 @@ def generate_eval_ranked_dataset(opt):
             new_table_info["table_name_original"] = data["db_schema"][table_id]["table_name_original"]
             column_pred_probs = list(map(lambda x:round(x,2), data["column_pred_probs"][table_id]))
             topk_column_ids = np.argsort(-np.array(column_pred_probs), kind="stable")[:opt.topk_column_num].tolist()
-            if opt.use_threshold:
-                topk_column_ids = [idx for idx in topk_column_ids if column_pred_probs[idx] >= opt.threshold]
-                if len(topk_column_ids) == 0:
-                    topk_column_ids = np.argsort(-np.array(column_pred_probs), kind="stable")[:opt.topk_column_num].tolist()
             
             new_table_info["column_names_original"] = [data["db_schema"][table_id]["column_names_original"][column_id] for column_id in topk_column_ids]
             new_table_info["db_contents"] = [data["db_schema"][table_id]["db_contents"][column_id] for column_id in topk_column_ids]
@@ -275,6 +315,13 @@ def generate_eval_ranked_dataset(opt):
                 "tc_original": tc_original
             }
         )
+
+    reduce_ratio = sum(reduce_ratio_length) / len(reduce_ratio_length)
+
+    for key in table_metric2list:
+        table_metric2list[key] = sum(table_metric2list[key])/len(table_metric2list[key])
+    for key in column_metric2list:
+        column_metric2list[key] = sum(column_metric2list[key])/len(column_metric2list[key])
     
     with open(opt.output_dataset_path, "w") as f:
         f.write(json.dumps(output_dataset, indent = 2, ensure_ascii = False))
@@ -282,6 +329,7 @@ def generate_eval_ranked_dataset(opt):
     if opt.mode == "eval":
         print("Table top-{} coverage: {}".format(opt.topk_table_num, sum(table_coverage_state_list)/len(table_coverage_state_list)))
         print("Column top-{} coverage: {}".format(opt.topk_column_num, sum(column_coverage_state_list)/len(column_coverage_state_list)))
+
 
 if __name__ == "__main__":
     opt = parse_option()

@@ -68,6 +68,24 @@
                      "--target_type", "natsql"]
         },
         {
+            "name": "generate_sql_data_eval",
+            "env": {"CUDA_VISIBLE_DEVICES":"5"},
+            "type": "python",
+            "request": "launch",
+            "program": "text2sql_data_generator.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["--input_dataset_path", "./data/preprocessed_data/dev_with_probs_natsql.json", 
+                     "--output_dataset_path", "./data/preprocessed_data/resdsql_dev_2.json", 
+                     "--topk_table_num", "4",
+                     "--topk_column_num", "5",
+                     "--mode", "eval",
+                     "--noise_rate", "0.2",
+                     "--use_contents",
+                    //  "--use_threshold",
+                     "--target_type", "natsql"]
+        },
+        {
             "name": "eval",
             "env": {"CUDA_VISIBLE_DEVICES":"7"},
             "type": "python",
@@ -86,6 +104,15 @@
                      "--num_beams", "8",
                      "--num_return_sequences", "8",
                      "--target_type", "natsql"]
+        },
+        {
+            "name": "eval_file",
+            "env": {"CUDA_VISIBLE_DEVICES":"7"},
+            "type": "python",
+            "request": "launch",
+            "program": "evaluate_predict_sqls.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
         },
         {
             "name": "Python: 当前文件",

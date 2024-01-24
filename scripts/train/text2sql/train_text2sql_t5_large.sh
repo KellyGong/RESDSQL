@@ -15,7 +15,7 @@ python -u text2sql.py \
     --train_filepath "./data/preprocessed_data/resdsql_train_spider.json"
 
 # select the best text2sql-t5-large ckpt
-python -u evaluate_text2sql_ckpts.py \
+CUDA_VISIBLE_DEVICES=1 python -u evaluate_text2sql_ckpts.py \
     --batch_size 12 \
     --seed 42 \
     --save_path "./models/text2sql-t5-large" \

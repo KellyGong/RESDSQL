@@ -454,8 +454,9 @@ def _test(opt):
         print("table auc:", table_auc)
         print("column auc:", column_auc)
         print("total auc:", table_auc+column_auc)
-    
+
     return returned_table_pred_probs, returned_column_pred_probs
+
 
 if __name__ == "__main__":
     opt = parse_option()

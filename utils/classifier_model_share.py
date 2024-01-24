@@ -28,7 +28,7 @@ class MyClassifier_Share(nn.Module):
 
         # column cls head
         self.column_info_cls_head_linear1 = nn.Linear(1024, 256)
-        self.column_info_cls_head_linear2 = nn.Linear(256, 2)
+        # self.column_info_cls_head_linear2 = nn.Linear(256, 2)
         
         # column bi-lstm layer
         self.column_info_bilstm = nn.LSTM(
@@ -44,7 +44,7 @@ class MyClassifier_Share(nn.Module):
 
         # table cls head
         self.table_name_cls_head_linear1 = nn.Linear(1024, 256)
-        self.table_name_cls_head_linear2 = nn.Linear(256, 2)
+        # self.table_name_cls_head_linear2 = nn.Linear(256, 2)
         
         # table bi-lstm pooling layer
         self.table_name_bilstm = nn.LSTM(

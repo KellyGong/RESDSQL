@@ -15,7 +15,7 @@ from transformers import T5TokenizerFast, T5ForConditionalGeneration, MT5ForCond
 from transformers.optimization import Adafactor
 from transformers.trainer_utils import set_seed
 from utils.spider_metric.evaluator import EvaluateTool
-from utils.load_dataset import Text2SQLDataset
+from utils.load_dataset import Text2SQLDataset, Text2SQLDataset_Graph
 from utils.text2sql_decoding_utils import decode_sqls, decode_natsqls
 
 
@@ -134,12 +134,21 @@ def _train(opt):
 
     print("initializing text2sql model.")
 
-    train_dataset = Text2SQLDataset(
-        dir_=opt.train_filepath,
-        mode="train",
-        preprocessed_file=opt.train_preprocessed_dataset,
-        tokenizer=text2sql_tokenizer
-    )
+    if opt.model == 'transformer':
+        train_dataset = Text2SQLDataset(
+            dir_=opt.train_filepath,
+            mode="train",
+            preprocessed_file=opt.train_preprocessed_dataset,
+            tokenizer=text2sql_tokenizer
+        )
+    
+    else:
+        train_dataset = Text2SQLDataset_Graph(
+            dir_=opt.train_filepath,
+            mode="train",
+            preprocessed_file=opt.train_preprocessed_dataset,
+            tokenizer=text2sql_tokenizer
+        )
 
     train_dataloder = DataLoader(
         train_dataset,
@@ -213,6 +222,8 @@ def _train(opt):
             batch_db_ids = [data[2] for data in batch] # unused
             batch_tc_original = [data[3] for data in batch] # unused
             # batch_graphs = [map_graph_dict_to_cuda(data[4], ['graph']) for data in batch]
+            if opt.model != 'transformer':
+                batch_graphs = [map_graph_dict_to_cuda(data[4], ['graph']) for data in batch]
             
             # if epoch == 0:
             #     for batch_id in range(len(batch_inputs)):
@@ -275,7 +286,7 @@ def _train(opt):
                     return_dict = True
                 )
 
-                encoder_last_hidden_state = model_outputs.encoder_last_hidden_state
+                # encoder_last_hidden_state = model_outputs.encoder_last_hidden_state
 
             
             loss = model_outputs["loss"]
@@ -367,11 +378,11 @@ def _test(opt):
         batch_tc_original = [data[2] for data in batch]
         # batch_graphs = [map_graph_dict_to_cuda(data[3], ['graph']) for data in batch]
 
-        batch_inputs_preprocessed = [token_preprocessor.preprocess(sentence) for sentence in batch_inputs]
+        # batch_inputs_preprocessed = [token_preprocessor.preprocess(sentence) for sentence in batch_inputs]
         # batch_inputs_tokens = [split_sentence_to_subtokens(sentence) for sentence in batch_inputs]
 
         tokenized_inputs = tokenizer(
-            batch_inputs_preprocessed, 
+            batch_inputs, 
             return_tensors="pt",
             padding = "max_length",
             max_length = 512,
@@ -435,11 +446,6 @@ def _test(opt):
     if new_dir != "":
         os.makedirs(new_dir, exist_ok = True)
 
-    # for pred in predict_sqls:
-    #     print(pred)
-    #     pred = pred.replace('. ', '.')
-    #     print(pred)
-
     # save results
     with open(opt.output, "w", encoding = 'utf-8') as f:
         for pred in predict_sqls:
@@ -455,7 +461,6 @@ def _test(opt):
         spider_metric_result = evaluator.evaluate(predict_sqls)
         print('exact_match score: {}'.format(spider_metric_result["exact_match"]))
         print('exec score: {}'.format(spider_metric_result["exec"]))
-    
         return spider_metric_result
 
 

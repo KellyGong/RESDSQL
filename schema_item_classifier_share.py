@@ -451,19 +451,20 @@ def _test(opt):
             )
         
         for batch_id, table_logits in enumerate(model_outputs["batch_table_name_cls_logits"]):
-            table_pred_probs = torch.nn.functional.softmax(table_logits, dim = 1)
-            returned_table_pred_probs.append(table_pred_probs[:, 1].cpu().tolist())
-            
-            table_pred_probs_for_auc.extend(table_pred_probs[:, 1].cpu().tolist())
+            # table_pred_probs = torch.nn.functional.softmax(table_logits, dim = 1)
+            # returned_table_pred_probs.append(table_pred_probs[:, 1].cpu().tolist())
+            returned_table_pred_probs.append(((1 + table_logits) / 2).cpu().tolist())
+            table_pred_probs_for_auc.extend(((1 + table_logits) / 2).cpu().tolist())
             table_labels_for_auc.extend(batch_table_labels[batch_id].cpu().tolist())
 
         for batch_id, column_logits in enumerate(model_outputs["batch_column_info_cls_logits"]):
             column_number_in_each_table = batch_column_number_in_each_table[batch_id]
-            column_pred_probs = torch.nn.functional.softmax(column_logits, dim = 1)
-            returned_column_pred_probs.append([column_pred_probs[:, 1].cpu().tolist()[sum(column_number_in_each_table[:table_id]):sum(column_number_in_each_table[:table_id+1])] \
+            # column_pred_probs = torch.nn.functional.softmax(column_logits, dim = 1)
+            column_pred_probs = ((1 + column_logits) / 2)
+            returned_column_pred_probs.append([column_pred_probs.cpu().tolist()[sum(column_number_in_each_table[:table_id]):sum(column_number_in_each_table[:table_id+1])] \
                 for table_id in range(len(column_number_in_each_table))])
             
-            column_pred_probs_for_auc.extend(column_pred_probs[:, 1].cpu().tolist())
+            column_pred_probs_for_auc.extend(column_pred_probs.cpu().tolist())
             column_labels_for_auc.extend(batch_column_labels[batch_id].cpu().tolist())
 
     if opt.mode == "eval":
@@ -535,7 +536,7 @@ if __name__ == "__main__":
             
             opt.dev_filepath = "./data/preprocessed_data/truncated_dataset.json"
             total_table_pred_probs, total_column_pred_probs = _test(opt)
-            
+
             for data_id, data in enumerate(truncated_dataset):
                 table_num = len(data["table_labels"])
                 if table_num == len(total_table_pred_probs[data_id]):

@@ -32,7 +32,7 @@ python schema_item_classifier.py \
     --seed 42 \
     --save_path "./models/text2sql_schema_item_classifier" \
     --dev_filepath "./data/preprocessed_data/preprocessed_dev.json" \
-    --output_filepath "./data/preprocessed_data/dev_with_probs.json" \
+    --output_filepath "./data/preprocessed_data/dev_with_probs2.json" \
     --use_contents \
     --add_fk_info \
     --mode "eval"
